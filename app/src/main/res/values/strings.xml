@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Mogged Keyboard</string>
+    <string name="ime_name">Mogged Keyboard</string>
+
+    <string name="subtitle">Своя клавиатура в стиле Material You</string>
+
+    <string name="status_title">Статус</string>
+    <string name="status_ready">✅ Mogged Keyboard выбрана. Откройте любое поле ввода — клавиатура появится.</string>
+    <string name="status_enabled">⚠️ Клавиатура включена, но не выбрана. Нажмите «Выбрать клавиатуру».</string>
+    <string name="status_off">Клавиатура пока выключена. Нажмите «Включить клавиатуру» и включите Mogged Keyboard в списке.</string>
+    <string name="height_value">Высота: %1$d dp</string>
+    <string name="btn_enable">Включить клавиатуру</string>
+    <string name="btn_pick">Выбрать клавиатуру</string>
+
+    <string name="settings_title">Настройки</string>
+    <string name="pref_vibrate">Вибрация при нажатии</string>
+    <string name="pref_sound">Звук нажатий</string>
+    <string name="pref_autoshift">Заглавная после точки</string>
+
+    <string name="about_title">О приложении</string>
+    <string name="about_text">Клавиатура работает полностью на устройстве: у приложения нет разрешения на интернет, оно ничего не отправляет и не собирает. Цвета берутся из системной палитры Material You (Android 12+), поэтому клавиатура настраивается под обои и тему телефона.\n\nПереключение языка — клавиша с глобусом. Долгое нажатие на «е» даёт «ё», на «ь» — «ъ». Удержание Backspace удаляет текст подряд.</string>
+</resources>
