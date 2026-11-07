@@ -1,9 +1,14 @@
 name: Build APK
 
 on:
-  push:
-    branches: [ main, master ]
+  # Сборка запускается скриптом upload-to-github.sh (или кнопкой Run workflow).
+  # Автозапуск по push отключён: скрипт заливает файлы по одному,
+  # иначе получается 20+ лишних сборок.
   workflow_dispatch:
+
+concurrency:
+  group: build-apk
+  cancel-in-progress: true
 
 jobs:
   build:
