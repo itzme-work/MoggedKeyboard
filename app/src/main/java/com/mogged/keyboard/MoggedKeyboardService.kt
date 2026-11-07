@@ -8,6 +8,7 @@ import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
+import android.inputmethodservice.InputMethodService
 import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
@@ -19,7 +20,6 @@ import android.view.SoundEffectConstants
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
-import android.view.inputmethod.InputMethodService
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.google.android.material.color.DynamicColors
