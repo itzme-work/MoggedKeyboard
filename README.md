@@ -206,7 +206,21 @@ release.json                — данные релиза для version.json
 .github/workflows/build.yml — тесты, lint, сборка, публикация (вручную)
 .github/workflows/check.yml — тесты и lint на push и pull request
 tools/make-keystore.sh      — одноразовое создание ключа
+tools/make-zip.sh           — zip-архив репозитория (собирает GitHub)
 ```
+
+## Архив проекта
+
+Локального `zip` в Android нет, поэтому архив собирает сам GitHub —
+это ровно содержимое ветки `main`:
+
+```sh
+sh tools/make-zip.sh
+```
+
+Файл появится рядом с проектом:
+`Download/MoggedKeyboard/MoggedKeyboard-<версия>.zip`.
+`upload-to-github.sh` делает архив сам после каждой заливки.
 
 ## Сборка локально
 
