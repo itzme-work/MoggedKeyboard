@@ -1,14 +1,15 @@
 name: Build APK
 
 on:
-  # Сборка запускается скриптом upload-to-github.sh (или кнопкой Run workflow).
-  # Автозапуск по push отключён: скрипт заливает файлы по одному,
-  # иначе получается 20+ лишних сборок.
+  # Запускается скриптом upload-to-github.sh (или кнопкой Run workflow).
   workflow_dispatch:
 
 concurrency:
   group: build-apk
   cancel-in-progress: true
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -24,16 +25,44 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Проверка ключа подписи
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: |
+          if [ ! -f keystore/mogged.jks ] || [ -z "$KEYSTORE_PASSWORD" ]; then
+            echo "::error::Нет ключа подписи. Запустите workflow 'Signing setup' и добавьте секрет KEYSTORE_PASSWORD."
+            exit 1
+          fi
+
       - name: Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.7'
 
-      - name: Build debug APK
-        run: gradle assembleDebug --no-daemon --stacktrace
+      - name: Build release APK
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: gradle assembleRelease --no-daemon --stacktrace
 
-      - name: Upload APK
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: MoggedKeyboard-apk
-          path: app/build/outputs/apk/debug/*.apk
+          path: app/build/outputs/apk/release/*.apk
+
+      - name: Опубликовать в Releases
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ github.run_number }}
+        run: |
+          APK=app/build/outputs/apk/release/app-release.apk
+          ls -l "$APK"
+          printf '{"versionCode": %s, "versionName": "1.%s"}\n' "$RUN" "$RUN" > version.json
+
+          gh release view latest >/dev/null 2>&1 || gh release create latest \
+            --title "Mogged Keyboard" \
+            --notes "Автоматическая сборка" \
+            --latest
+
+          gh release upload latest "$APK#MoggedKeyboard.apk" version.json --clobber
