@@ -13,7 +13,32 @@
     <string name="btn_enable">Включить клавиатуру</string>
     <string name="btn_pick">Выбрать клавиатуру</string>
 
-    <string name="settings_title">Настройки</string>
+    <string name="onboard_title">Первый запуск</string>
+    <string name="onboard_text">Три шага, и клавиатура готова:\n1. Включите Mogged Keyboard в системе.\n2. Выберите её как текущую клавиатуру.\n3. Разрешите установку обновлений: приложение сверяет SHA-256 и ставит новые версии поверх.</string>
+    <string name="onboard_enable">1. Включить клавиатуру</string>
+    <string name="onboard_pick">2. Выбрать клавиатуру</string>
+    <string name="onboard_install">3. Разрешить установку</string>
+    <string name="onboard_install_off">Установка обновлений: разрешение пока не выдано.</string>
+    <string name="onboard_install_done">Установка обновлений: разрешение выдано.</string>
+    <string name="onboard_done">Готово, больше не показывать</string>
+
+    <string name="appearance_title">Вид клавиатуры</string>
+    <string name="feel_title">Отклик и размер</string>
+
+    <string name="theme_title">Тема</string>
+    <string name="theme_system">Как в системе</string>
+    <string name="theme_light">Светлая</string>
+    <string name="theme_dark">Тёмная</string>
+    <string name="theme_amoled">AMOLED (чёрная)</string>
+    <string name="radius_value">Радиус клавиш: %1$d dp</string>
+    <string name="pref_number_row">Числовой ряд над буквами</string>
+    <string name="pref_hints">Подсказки символов на клавишах</string>
+    <string name="pref_preview">Предпросмотр клавиши</string>
+    <string name="pref_double_space">Двойной пробел — точка и пробел</string>
+
+    <string name="vibration_value">Сила вибрации: %1$d%%</string>
+    <string name="volume_value">Громкость звука: %1$d%%</string>
+
     <string name="updates_title">Обновления</string>
     <string name="update_current">Установлена версия %1$s</string>
     <string name="update_check">Проверить обновления</string>
@@ -38,5 +63,6 @@
     <string name="changelog_title">Что нового</string>
 
     <string name="about_title">О приложении</string>
-    <string name="about_text">Клавиатура работает на устройстве: набранный текст никуда не отправляется. Интернет нужен только для проверки и скачивания обновлений с GitHub — это можно выключить в настройках. Цвета берутся из системной палитры Material You (Android 12+), поэтому клавиатура настраивается под обои и тему телефона.\n\nПереключение языка — клавиша с глобусом. Долгое нажатие на «е» даёт «ё», на «ь» — «ъ». Удержание Backspace удаляет текст подряд.</string>
+    <string name="about_version">Версия %1$s (versionCode %2$d)</string>
+    <string name="about_text">Клавиатура работает на устройстве: набранный текст никуда не отправляется. Интернет нужен только для проверки и скачивания обновлений с GitHub — это можно выключить в настройках. Цвета берутся из системной палитры Material You (Android 12+), а тему можно выбрать вручную.\n\nДолгое нажатие на букву или знак открывает меню альтернатив: ё, ъ, акценты, валюты. На клавишах видны подсказки, их можно выключить. Кнопка «=&lt;» открывает вторую страницу символов.\n\nСвайп по пробелу или долгое нажатие на нём меняет язык. Долгое нажатие на 🌐 открывает системный выбор клавиатуры. Двойной пробел ставит точку и пробел. Удержание Backspace удаляет текст подряд.</string>
 </resources>
