@@ -47,10 +47,17 @@ jobs:
           echo "Ключ подписи готов: $KEYSTORE_PATH"
           echo "KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
 
-      - name: Gradle
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: '8.7'
+      - name: Gradle 8.7
+        run: |
+          set -e
+          # Качаем дистрибутив сами: у setup-gradle сейчас сбоит кэш,
+          # а -bin на CDN отдаёт 504. -all — тот же Gradle 8.7.
+          ZIP="$RUNNER_TEMP/gradle.zip"
+          curl -fsSL --retry 8 --retry-all-errors --retry-delay 10 \
+            -o "$ZIP" "https://services.gradle.org/distributions/gradle-8.7-all.zip"
+          unzip -q "$ZIP" -d "$RUNNER_TEMP"
+          "$RUNNER_TEMP/gradle-8.7/bin/gradle" --version
+          echo "$RUNNER_TEMP/gradle-8.7/bin" >> "$GITHUB_PATH"
 
       - name: Юнит-тесты
         run: gradle testReleaseUnitTest --no-daemon --stacktrace
