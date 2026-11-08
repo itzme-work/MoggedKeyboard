@@ -14,10 +14,23 @@
     <string name="btn_pick">Выбрать клавиатуру</string>
 
     <string name="settings_title">Настройки</string>
+    <string name="updates_title">Обновления</string>
+    <string name="update_current">Установлена версия %1$s</string>
+    <string name="update_check">Проверить обновления</string>
+    <string name="update_checking">Проверяю обновления…</string>
+    <string name="update_none">Не удалось проверить: нет связи с GitHub.</string>
+    <string name="update_fresh">У вас последняя версия (%1$s).</string>
+    <string name="update_available">Доступна версия %1$s</string>
+    <string name="update_download">Скачать обновление</string>
+    <string name="update_downloading">Скачиваю…</string>
+    <string name="update_ready">Загрузка завершена — открываю установщик.</string>
+    <string name="update_error">Не удалось скачать обновление.</string>
+    <string name="update_allow">Разрешите установку из этого приложения и нажмите снова.</string>
+    <string name="pref_updates">Проверять обновления</string>
     <string name="pref_vibrate">Вибрация при нажатии</string>
     <string name="pref_sound">Звук нажатий</string>
     <string name="pref_autoshift">Заглавная после точки</string>
 
     <string name="about_title">О приложении</string>
-    <string name="about_text">Клавиатура работает полностью на устройстве: у приложения нет разрешения на интернет, оно ничего не отправляет и не собирает. Цвета берутся из системной палитры Material You (Android 12+), поэтому клавиатура настраивается под обои и тему телефона.\n\nПереключение языка — клавиша с глобусом. Долгое нажатие на «е» даёт «ё», на «ь» — «ъ». Удержание Backspace удаляет текст подряд.</string>
+    <string name="about_text">Клавиатура работает на устройстве: набранный текст никуда не отправляется. Интернет нужен только для проверки и скачивания обновлений с GitHub — это можно выключить в настройках. Цвета берутся из системной палитры Material You (Android 12+), поэтому клавиатура настраивается под обои и тему телефона.\n\nПереключение языка — клавиша с глобусом. Долгое нажатие на «е» даёт «ё», на «ь» — «ъ». Удержание Backspace удаляет текст подряд.</string>
 </resources>
