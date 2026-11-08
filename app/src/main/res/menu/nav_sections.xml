@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/nav_home"
+        android:icon="@drawable/ic_nav_home"
+        android:title="@string/sec_home" />
+    <item
+        android:id="@+id/nav_look"
+        android:icon="@drawable/ic_nav_look"
+        android:title="@string/sec_look" />
+    <item
+        android:id="@+id/nav_input"
+        android:icon="@drawable/ic_nav_input"
+        android:title="@string/sec_input" />
+    <item
+        android:id="@+id/nav_feel"
+        android:icon="@drawable/ic_nav_feel"
+        android:title="@string/sec_feel" />
+    <item
+        android:id="@+id/nav_more"
+        android:icon="@drawable/ic_nav_more"
+        android:title="@string/sec_more" />
+</menu>
