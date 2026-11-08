@@ -34,6 +34,9 @@ object Backup {
     const val SCHEMA = 1
     const val MARKER = "mogged-keyboard"
 
+    /** Файл больше 256 КБ — уже не резервная копия, считаем его битым. */
+    const val MAX_BYTES = 256 * 1024
+
     val DEFAULT = Settings(
         width = 100,
         oneHand = "off",
