@@ -823,6 +823,8 @@ class MoggedKeyboardService : InputMethodService() {
 
     // ── тактильный отклик ────────────────────────────────────
     private fun tap() {
+        // Нажатие на любую клавишу закрывает меню альтернатив.
+        dismissAlternatives()
         vibrate()
         if (soundOn) clickSound?.play(soundVolume.toFloat() / 100f)
     }
