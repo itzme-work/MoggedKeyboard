@@ -55,7 +55,18 @@ jobs:
       - name: Lint
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-        run: gradle lintRelease --no-daemon --stacktrace
+        run: |
+          set +e
+          gradle lintRelease --no-daemon --stacktrace
+          code=$?
+          if [ "$code" -ne 0 ]; then
+            REPORT=app/build/reports/lint-results-release.txt
+            if [ -f "$REPORT" ]; then
+              echo "----- отчёт lint -----"
+              cat "$REPORT"
+            fi
+          fi
+          exit "$code"
 
       - name: Сборка release APK
         env:
