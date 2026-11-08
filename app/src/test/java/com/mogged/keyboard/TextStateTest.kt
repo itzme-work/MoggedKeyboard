@@ -34,12 +34,31 @@ class TextStateTest {
 
     @Test
     fun autoShiftAfterDotAndSpace() {
+        // Точка сразу включает заглавную, даже если пробела ещё нет.
         val afterDot = CapsPolicy.afterInput(ShiftState.OFF, ".", false, true, true, false)
-        assertEquals(ShiftState.OFF, afterDot)
+        assertEquals(ShiftState.ONCE, afterDot)
         assertTrue(CapsPolicy.sentenceStartAfter(".", false))
 
-        val afterSpace = CapsPolicy.afterInput(ShiftState.OFF, " ", true, true, true, false)
+        // Пробел после ONCE не гасит автозаглавную: следующая буква снова заглавная.
+        val afterSpace = CapsPolicy.afterInput(ShiftState.ONCE, " ", true, true, true, false)
         assertEquals(ShiftState.ONCE, afterSpace)
+    }
+
+    @Test
+    fun autoShiftAfterQuestionAndExclamation() {
+        listOf("!", "?").forEach { mark ->
+            assertEquals(
+                "после «$mark»",
+                ShiftState.ONCE,
+                CapsPolicy.afterInput(ShiftState.OFF, mark, false, true, true, false)
+            )
+        }
+    }
+
+    @Test
+    fun noAutoShiftAfterPunctuationWhenFieldDoesNotAsk() {
+        val after = CapsPolicy.afterInput(ShiftState.OFF, ".", false, true, false, false)
+        assertEquals(ShiftState.OFF, after)
     }
 
     @Test
