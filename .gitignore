@@ -18,3 +18,8 @@ buildlog/
 *.keystore
 *.b64
 keystore/
+
+# Токен заливки — только локально
+*.token
+.mogged-token
+.mogged-user
