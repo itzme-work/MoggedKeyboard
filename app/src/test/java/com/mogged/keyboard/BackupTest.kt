@@ -1,0 +1,108 @@
+package com.mogged.keyboard
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Test
+
+class BackupTest {
+
+    private val sample = Settings(
+        width = 80,
+        oneHand = "left",
+        height = 300,
+        keyRadius = 16,
+        theme = "dark",
+        hints = false,
+        keyPreview = false,
+        numberRow = true,
+        doubleSpace = false,
+        autoShift = false,
+        vibrate = false,
+        hapticStyle = "strong",
+        hapticStrong = false,
+        sound = true,
+        volume = 70,
+        vibrateStrength = 25
+    )
+
+    @Test
+    fun exportThenImportReturnsSameSettings() {
+        val restored = Backup.parse(Backup.toJson(sample))
+        assertEquals(sample, restored)
+    }
+
+    @Test
+    fun jsonHasMarkerAndSchema() {
+        val text = Backup.toJson(sample)
+        assertNotNull(Backup.parse(text))
+        assertFalse(text.contains("onboarded"))
+        assertFalse(text.contains("check_updates"))
+        assertFalse(text.contains("checkUpdates"))
+    }
+
+    @Test
+    fun valuesAreClampedOnImport() {
+        val json = """
+            {
+              "app": "mogged-keyboard",
+              "schema": 1,
+              "width": 900,
+              "height": 10,
+              "keyRadius": -5,
+              "volume": 500,
+              "vibrateStrength": 0
+            }
+        """.trimIndent()
+
+        val settings = Backup.parse(json)!!
+        assertEquals(100, settings.width)
+        assertEquals(220, settings.height)
+        assertEquals(0, settings.keyRadius)
+        assertEquals(100, settings.volume)
+        assertEquals(1, settings.vibrateStrength)
+    }
+
+    @Test
+    fun unknownKeysAndWrongOptionsFallBackToDefaults() {
+        val json = """
+            {
+              "app": "mogged-keyboard",
+              "schema": 1,
+              "theme": "neon",
+              "oneHand": "middle",
+              "hapticStyle": "thunder",
+              "какой-то": "мусор",
+              "width": 70
+            }
+        """.trimIndent()
+
+        val settings = Backup.parse(json)!!
+        assertEquals(70, settings.width)
+        assertEquals(Backup.DEFAULT.theme, settings.theme)
+        assertEquals(Backup.DEFAULT.oneHand, settings.oneHand)
+        assertEquals(Backup.DEFAULT.hapticStyle, settings.hapticStyle)
+    }
+
+    @Test
+    fun missingFieldsUseDefaults() {
+        val settings = Backup.parse("""{"app":"mogged-keyboard","schema":1}""")!!
+        assertEquals(Backup.DEFAULT, settings)
+    }
+
+    @Test
+    fun foreignFileIsRejected() {
+        assertNull(Backup.parse("""{"app":"another-keyboard","schema":1}"""))
+        assertNull(Backup.parse("""{"schema":1}"""))
+        assertNull(Backup.parse("""{"app":"mogged-keyboard","schema":2}"""))
+    }
+
+    @Test
+    fun brokenJsonIsRejected() {
+        assertNull(Backup.parse(""))
+        assertNull(Backup.parse("не json"))
+        assertNull(Backup.parse("""{"app":"mogged-keyboard", "schema": 1, """))
+        assertNull(Backup.parse("[]"))
+    }
+}
