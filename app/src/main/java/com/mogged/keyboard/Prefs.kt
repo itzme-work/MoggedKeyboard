@@ -40,6 +40,26 @@ class Prefs(context: Context) {
         get() = store.getInt("key_radius", 11)
         set(value) = store.edit().putInt("key_radius", value).apply()
 
+    /** Ширина клавиатуры в процентах экрана, 50..100. */
+    var width: Int
+        get() = store.getInt("width", 100).coerceIn(50, 100)
+        set(value) = store.edit().putInt("width", value.coerceIn(50, 100)).apply()
+
+    /** Режим одной руки: off, left или right. */
+    var oneHand: String
+        get() = store.getString("one_hand", "off") ?: "off"
+        set(value) = store.edit().putString("one_hand", value).apply()
+
+    /** Характер вибрации: click, tick или strong. */
+    var hapticStyle: String
+        get() = store.getString("haptic_style", "click") ?: "click"
+        set(value) = store.edit().putString("haptic_style", value).apply()
+
+    /** Сильнее вибрируют Shift, Enter и пробел. */
+    var hapticStrong: Boolean
+        get() = store.getBoolean("haptic_strong", true)
+        set(value) = store.edit().putBoolean("haptic_strong", value).apply()
+
     /** Показывать подсказки альтернативных символов на клавишах. */
     var hints: Boolean
         get() = store.getBoolean("hints", true)
