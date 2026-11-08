@@ -349,7 +349,8 @@ class MoggedKeyboardService : InputMethodService() {
             )
         )
 
-        val hintText = if (def is Key.Char && showHints) def.hint else null
+        // В полях паролей и PIN подсказки не показываем.
+        val hintText = if (def is Key.Char && showHints && !isSensitive) def.hint else null
         if (hintText != null) {
             val hint = TextView(ctx).apply {
                 text = hintText
@@ -523,7 +524,8 @@ class MoggedKeyboardService : InputMethodService() {
     // ── предпросмотр и альтернативы ──────────────────────────
 
     private fun showPreview(anchor: View, text: String) {
-        if (!previewOn || text.isEmpty()) return
+        // Предпросмотр показывает сам символ, поэтому в парольных полях он выключен.
+        if (!previewOn || isSensitive || text.isEmpty()) return
         hidePreview()
 
         val size = dp(48)
