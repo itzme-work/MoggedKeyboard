@@ -22,8 +22,10 @@
     <string name="onboard_install_done">Установка обновлений: разрешение выдано.</string>
     <string name="onboard_done">Готово, больше не показывать</string>
 
-    <string name="appearance_title">Вид клавиатуры</string>
-    <string name="feel_title">Отклик и размер</string>
+    <string name="appearance_title">Внешний вид</string>
+    <string name="keys_title">Клавиши</string>
+    <string name="feel_title">Вибрация и звук</string>
+    <string name="test_field_hint">Проверьте клавиатуру здесь…</string>
 
     <string name="theme_title">Тема</string>
     <string name="theme_system">Как в системе</string>
@@ -31,13 +33,35 @@
     <string name="theme_dark">Тёмная</string>
     <string name="theme_amoled">AMOLED (чёрная)</string>
     <string name="radius_value">Радиус клавиш: %1$d dp</string>
+    <string name="width_value">Ширина клавиатуры: %1$d%%</string>
+    <string name="onehand_title">Одна рука</string>
+    <string name="onehand_off">Выкл</string>
+    <string name="onehand_left">Слева</string>
+    <string name="onehand_right">Справа</string>
+    <string name="onehand_hint">Блок клавиш прижимается к выбранному краю. Насколько он узкий — задаёт ползунок ширины.</string>
     <string name="pref_number_row">Числовой ряд над буквами</string>
     <string name="pref_hints">Подсказки символов на клавишах</string>
     <string name="pref_preview">Предпросмотр клавиши</string>
     <string name="pref_double_space">Двойной пробел — точка и пробел</string>
 
     <string name="vibration_value">Сила вибрации: %1$d%%</string>
+    <string name="vibration_legacy_hint">Сила действует на Android 8–9. На Android 10+ характер задают системные эффекты.</string>
     <string name="volume_value">Громкость звука: %1$d%%</string>
+    <string name="haptic_title">Характер вибрации</string>
+    <string name="haptic_click">Клик</string>
+    <string name="haptic_tick">Тик</string>
+    <string name="haptic_strong">Сильный</string>
+    <string name="pref_haptic_strong">Сильнее на Shift, Enter и пробеле</string>
+
+    <string name="backup_title">Резервная копия</string>
+    <string name="backup_hint">Экспорт сохраняет настройки клавиатуры в JSON-файл, импорт возвращает их. Отметка о первом запуске и проверка обновлений не переносятся.</string>
+    <string name="backup_export">Экспортировать настройки</string>
+    <string name="backup_import">Импортировать настройки</string>
+    <string name="backup_saved">Настройки сохранены в файл</string>
+    <string name="backup_save_failed">Не удалось записать файл</string>
+    <string name="backup_loaded">Настройки загружены</string>
+    <string name="backup_bad">Это не резервная копия Mogged Keyboard</string>
+    <string name="backup_read_failed">Не удалось прочитать файл</string>
 
     <string name="updates_title">Обновления</string>
     <string name="update_current">Установлена версия %1$s</string>
@@ -58,7 +82,7 @@
     <string name="pref_updates">Проверять обновления</string>
     <string name="pref_vibrate">Вибрация при нажатии</string>
     <string name="pref_sound">Звук нажатий</string>
-    <string name="pref_autoshift">Заглавная после точки</string>
+    <string name="pref_autoshift">Заглавная после «. », «? » и «! »</string>
 
     <string name="changelog_title">Что нового</string>
 
