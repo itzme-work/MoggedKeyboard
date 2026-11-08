@@ -21,6 +21,10 @@ class Prefs(context: Context) {
         get() = store.getBoolean("autoshift", true)
         set(value) = store.edit().putBoolean("autoshift", value).apply()
 
+    var checkUpdates: Boolean
+        get() = store.getBoolean("check_updates", true)
+        set(value) = store.edit().putBoolean("check_updates", value).apply()
+
     /** Высота клавиатуры в dp. */
     var height: Int
         get() = store.getInt("height", 280)
