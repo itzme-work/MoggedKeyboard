@@ -15,6 +15,7 @@ import android.inputmethodservice.InputMethodService
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.text.InputType
@@ -22,6 +23,7 @@ import android.view.ContextThemeWrapper
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
@@ -51,6 +53,9 @@ class MoggedKeyboardService : InputMethodService() {
     private var lang = Lang.RU
     private var shift = ShiftState.OFF
     private var lastChar = '\u0000'
+
+    /** Когда Shift нажимали в прошлый раз: по этому времени ловим двойной тап. */
+    private var lastShiftTap = 0L
 
     // поведение поля ввода
     private var capSentences = true
@@ -395,7 +400,9 @@ class MoggedKeyboardService : InputMethodService() {
                 frame.setOnTouchListener { view, event ->
                     when (event.actionMasked) {
                         MotionEvent.ACTION_DOWN ->
-                            if (previewOn) showPreview(view, def.text)
+                            if (previewOn) {
+                                showPreview(view, CapsPolicy.apply(def.text, shift))
+                            }
                         MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
                             hidePreview()
                     }
@@ -410,9 +417,17 @@ class MoggedKeyboardService : InputMethodService() {
                 }
             }
 
-            Key.Shift -> frame.setOnClickListener {
-                tap(strongKey = true)
-                cycleShift()
+            Key.Shift -> {
+                frame.setOnClickListener {
+                    tap(strongKey = true)
+                    cycleShift()
+                }
+                // Долгое нажатие — сразу Caps Lock.
+                frame.setOnLongClickListener {
+                    tap(strongKey = true)
+                    capsLock()
+                    true
+                }
             }
 
             Key.Backspace -> {
@@ -602,8 +617,10 @@ class MoggedKeyboardService : InputMethodService() {
         }
 
         options.forEach { option ->
+            // Ё и Ъ в меню тоже становятся заглавными при Shift и Caps Lock.
+            val shown = CapsPolicy.apply(option, shift)
             val item = TextView(ctx).apply {
-                text = option
+                text = shown
                 textSize = letterSize
                 setTextColor(cPrimary)
                 gravity = Gravity.CENTER
@@ -611,7 +628,7 @@ class MoggedKeyboardService : InputMethodService() {
                 minWidth = dp(44)
                 minHeight = dp(48)
                 setPadding(dp(8), 0, dp(8), 0)
-                contentDescription = option
+                contentDescription = shown
                 setOnClickListener {
                     type(option)
                     dismissAlternatives()
@@ -665,7 +682,8 @@ class MoggedKeyboardService : InputMethodService() {
 
     // ── внешний вид клавиш ───────────────────────────────────
     private fun label(def: Key): String = when (def) {
-        is Key.Char -> def.text
+        // Буквы показываем так, как они будут введены: с учётом Shift и Caps.
+        is Key.Char -> CapsPolicy.apply(def.text, shift)
         Key.Shift -> if (shift == ShiftState.CAPS) "\u21EA" else "\u21E7"
         Key.Backspace -> "\u232B"
         Key.Enter -> actionLabel
@@ -679,7 +697,7 @@ class MoggedKeyboardService : InputMethodService() {
     private fun describe(def: Key): String = when (def) {
         is Key.Char -> when (def.text) {
             " " -> "Пробел"
-            else -> def.text
+            else -> CapsPolicy.apply(def.text, shift)
         }
         Key.Shift -> if (shift == ShiftState.CAPS) "Капслок включён" else "Заглавные буквы"
         Key.Backspace -> "Удалить"
@@ -805,7 +823,20 @@ class MoggedKeyboardService : InputMethodService() {
     }
 
     private fun cycleShift() {
-        shift = CapsPolicy.next(shift)
+        val now = SystemClock.uptimeMillis()
+        // Ноль — Shift ещё не нажимали в этом поле, значит это не двойной тап.
+        val elapsed = if (lastShiftTap == 0L) Long.MAX_VALUE else now - lastShiftTap
+        shift = CapsPolicy.next(
+            shift, elapsed, ViewConfiguration.getDoubleTapTimeout().toLong()
+        )
+        lastShiftTap = now
+        render()
+    }
+
+    /** Долгое нажатие на Shift включает Caps Lock сразу. */
+    private fun capsLock() {
+        shift = ShiftState.CAPS
+        lastShiftTap = 0L
         render()
     }
 
@@ -933,6 +964,8 @@ class MoggedKeyboardService : InputMethodService() {
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         stopRepeat()
+        // Новый показ клавиатуры — двойной тап по Shift не тянем из прошлого раза.
+        lastShiftTap = 0L
         dismissAlternatives()
         hidePreview()
         loadPrefs()
