@@ -1,7 +1,7 @@
 name: Build APK
 
 on:
-  # Запускается скриптом upload-to-github.sh (или кнопкой Run workflow).
+  # Запускается скриптом upload-to-github.sh или вручную кнопкой Run workflow.
   workflow_dispatch:
 
 concurrency:
@@ -25,24 +25,49 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Проверка ключа подписи
+      - name: Ключ подписи из секрета
         env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
         run: |
-          if [ ! -f keystore/mogged.jks ] || [ -z "$KEYSTORE_PASSWORD" ]; then
-            echo "::error::Нет ключа подписи. Запустите workflow 'Signing setup' и добавьте секрет KEYSTORE_PASSWORD."
+          set -e
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ]; then
+            echo "::error::Нет секретов KEYSTORE_BASE64 и/или KEYSTORE_PASSWORD. См. README → «Ключ подписи»."
             exit 1
           fi
+
+          KEYSTORE_PATH="$RUNNER_TEMP/mogged.jks"
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_PATH"
+
+          if [ ! -s "$KEYSTORE_PATH" ]; then
+            echo "::error::KEYSTORE_BASE64 пустой или повреждён — не удалось декодировать ключ."
+            exit 1
+          fi
+
+          echo "Ключ подписи готов: $KEYSTORE_PATH"
+          echo "KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
 
       - name: Gradle
         uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: '8.7'
 
-      - name: Build release APK
+      - name: Lint
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: gradle lintRelease --no-daemon --stacktrace
+
+      - name: Сборка release APK
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
         run: gradle assembleRelease --no-daemon --stacktrace
+
+      - name: Проверка подписи
+        run: |
+          APK=app/build/outputs/apk/release/app-release.apk
+          [ -f "$APK" ] || { echo "::error::APK не собран."; exit 1; }
+          APKSIGNER=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner
+          "$APKSIGNER" verify --print-certs "$APK"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -56,9 +81,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RUN: ${{ github.run_number }}
         run: |
+          set -e
           APK=app/build/outputs/apk/release/app-release.apk
-          ls -l "$APK"
-          printf '{"versionCode": %s, "versionName": "1.%s"}\n' "$RUN" "$RUN" > version.json
+          SHA=$(sha256sum "$APK" | cut -d' ' -f1)
+          echo "sha256=$SHA"
+
+          jq --argjson code "$RUN" --arg sha "$SHA" \
+             '. + {versionCode: $code, sha256: $sha}' \
+             release.json > version.json
+
+          cat version.json
 
           gh release view latest >/dev/null 2>&1 || gh release create latest \
             --title "Mogged Keyboard" \
