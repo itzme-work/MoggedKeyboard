@@ -3,6 +3,7 @@ package com.mogged.keyboard
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.res.ColorStateList
+import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
@@ -12,8 +13,9 @@ import android.inputmethodservice.InputMethodService
 import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
-import android.view.Gravity
+import android.text.InputType
 import android.view.ContextThemeWrapper
+import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.SoundEffectConstants
@@ -36,11 +38,25 @@ class MoggedKeyboardService : InputMethodService() {
 
     private var root: LinearLayout? = null
     private var rowsBox: LinearLayout? = null
+    private var lastWidth = 0
 
     private var page = Page.LETTERS
     private var lang = Lang.RU
     private var shift = ShiftState.OFF
     private var lastChar = ' '
+
+    // поведение поля ввода
+    private var capSentences = true
+    private var capWords = false
+    private var isSensitive = false
+    private var extraLeft = ","
+    private var extraRight = "."
+    private var actionLabel = "\u21B5"
+
+    private var sentenceStart = true
+
+    /** После поворота или смены темы не сбрасываем shift, caps и страницу. */
+    private var keepStateOnce = false
 
     private val handler = Handler(Looper.getMainLooper())
     private var repeater: Runnable? = null
@@ -67,6 +83,7 @@ class MoggedKeyboardService : InputMethodService() {
 
     override fun onDestroy() {
         stopRepeat()
+        handler.removeCallbacksAndMessages(null)
         prefs.store.unregisterOnSharedPreferenceChangeListener(prefListener)
         super.onDestroy()
     }
@@ -128,8 +145,18 @@ class MoggedKeyboardService : InputMethodService() {
             insets
         }
 
+        // Смена размера окна (split-screen, складной, поворот) — пересчитываем.
+        r.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            if (r.width > 0 && r.width != lastWidth) {
+                lastWidth = r.width
+                box.layoutParams = box.layoutParams.apply { width = contentWidth() }
+                render()
+            }
+        }
+
         root = r
         rowsBox = box
+        readEditorInfo(currentInputEditorInfo)
         render()
         r.post { ViewCompat.requestApplyInsets(r) }
         return r
@@ -182,7 +209,7 @@ class MoggedKeyboardService : InputMethodService() {
         root?.setBackgroundColor(cSurface)
         box.removeAllViews()
 
-        Layouts.page(page, lang).forEach { keys ->
+        Layouts.page(page, lang, extraLeft, extraRight).forEach { keys ->
             val row = LinearLayout(ctx).apply {
                 orientation = LinearLayout.HORIZONTAL
                 layoutParams = LinearLayout.LayoutParams(
@@ -202,6 +229,7 @@ class MoggedKeyboardService : InputMethodService() {
             isClickable = true
             isFocusable = false
             text = label(def)
+            contentDescription = describe(def)
             textSize = sizeFor(def)
             setTextColor(colorFor(def))
             typeface = Typeface.create("sans-serif", Typeface.NORMAL)
@@ -307,17 +335,28 @@ class MoggedKeyboardService : InputMethodService() {
         is Key.Char -> def.text
         Key.Shift -> if (shift == ShiftState.CAPS) "\u21EA" else "\u21E7"
         Key.Backspace -> "\u232B"
-        Key.Enter -> "\u21B5"
+        Key.Enter -> actionLabel
         Key.Space -> ""
         Key.LangKey -> "\uD83C\uDF10"
         Key.ToSymbols -> "?123"
         Key.ToLetters -> "ABC"
     }
 
+    private fun describe(def: Key): String = when (def) {
+        is Key.Char -> def.text
+        Key.Shift -> if (shift == ShiftState.CAPS) "Капслок включён" else "Заглавные буквы"
+        Key.Backspace -> "Удалить"
+        Key.Enter -> "Ввод"
+        Key.Space -> "Пробел"
+        Key.LangKey -> "Сменить язык"
+        Key.ToSymbols -> "Цифры и символы"
+        Key.ToLetters -> "Буквы"
+    }
+
     private fun sizeFor(def: Key): Float = when (def) {
         is Key.Char -> if (def.text.length > 1) specialSize else letterSize
         Key.Backspace -> letterSize * 0.9f
-        Key.Enter -> letterSize * 0.9f
+        Key.Enter -> letterSize * 0.85f
         Key.Shift -> letterSize * 0.82f
         Key.LangKey -> letterSize * 0.82f
         Key.ToSymbols, Key.ToLetters -> specialSize * 0.85f
@@ -347,35 +386,54 @@ class MoggedKeyboardService : InputMethodService() {
     // ── ввод ─────────────────────────────────────────────────
     private fun type(raw: String) {
         val ic = currentInputConnection ?: return
+        if (raw.isEmpty()) return
 
-        val text = if (shift != ShiftState.OFF && raw.length == 1 && raw[0].isLetter()) {
-            raw.uppercase()
-        } else {
-            raw
-        }
+        val letter = raw.length == 1 && raw[0].isLetter()
+        val text = if (shift != ShiftState.OFF && letter) raw.uppercase() else raw
         ic.commitText(text, 1)
 
+        var refresh = false
         if (shift == ShiftState.ONCE) {
             shift = ShiftState.OFF
-            render()
+            refresh = true
         }
 
-        if (prefs.autoShift && raw == " " && lastChar in ".!?") {
-            shift = ShiftState.ONCE
-            render()
+        if (letter) sentenceStart = false
+        if (raw.endsWith("\n")) sentenceStart = true
+        if (raw.last() in ".!?") sentenceStart = true
+
+        if (!isSensitive && prefs.autoShift) {
+            val spaceAfterSentence = raw == " " && sentenceStart && capSentences
+            val newWord = raw == " " && capWords
+            val newLine = raw.endsWith("\n") && (capSentences || capWords)
+            if (spaceAfterSentence || newWord || newLine) {
+                shift = ShiftState.ONCE
+                refresh = true
+            }
         }
 
-        if (raw.isNotEmpty()) lastChar = raw.last()
+        if (refresh) render()
+        lastChar = raw.last()
     }
 
     private fun backspace() {
         val ic = currentInputConnection ?: return
+
         val selected = ic.getSelectedText(0)
         if (!selected.isNullOrEmpty()) {
             ic.commitText("", 1)
-        } else {
-            ic.deleteSurroundingText(1, 0)
+            return
         }
+
+        // Удаляем по кодпоинтам, чтобы не рвать эмодзи и суррогатные пары.
+        val before = ic.getTextBeforeCursor(2, 0)
+        var count = 1
+        if (before != null && before.length == 2) {
+            if (Character.isLowSurrogate(before[1]) && Character.isHighSurrogate(before[0])) {
+                count = 2
+            }
+        }
+        ic.deleteSurroundingText(count, 0)
         lastChar = ' '
     }
 
@@ -388,10 +446,11 @@ class MoggedKeyboardService : InputMethodService() {
         if (!handled) ic.commitText("\n", 1)
 
         lastChar = ' '
-        if (prefs.autoShift) {
+        sentenceStart = true
+        if (!isSensitive && prefs.autoShift && (capSentences || capWords)) {
             shift = ShiftState.ONCE
-            render()
         }
+        render()
     }
 
     private fun switchLang() {
@@ -443,16 +502,87 @@ class MoggedKeyboardService : InputMethodService() {
         }
     }
 
+    // ── параметры поля ввода ─────────────────────────────────
+    private fun readEditorInfo(info: EditorInfo?) {
+        val type = info?.inputType ?: (InputType.TYPE_CLASS_TEXT or
+            InputType.TYPE_TEXT_FLAG_CAP_SENTENCES)
+
+        val cls = type and InputType.TYPE_MASK_CLASS
+        val variation = type and InputType.TYPE_MASK_VARIATION
+
+        capSentences = (type and InputType.TYPE_TEXT_FLAG_CAP_SENTENCES) != 0
+        capWords = (type and InputType.TYPE_TEXT_FLAG_CAP_WORDS) != 0
+
+        val password = cls == InputType.TYPE_CLASS_TEXT &&
+            (variation == InputType.TYPE_TEXT_VARIATION_PASSWORD ||
+                variation == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD ||
+                variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD)
+
+        isSensitive = password || cls == InputType.TYPE_CLASS_NUMBER ||
+            cls == InputType.TYPE_CLASS_PHONE
+
+        extraLeft = ","
+        extraRight = "."
+
+        if (cls == InputType.TYPE_CLASS_TEXT) {
+            val email = variation == InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS ||
+                variation == InputType.TYPE_TEXT_VARIATION_WEB_EMAIL_ADDRESS
+            val url = variation == InputType.TYPE_TEXT_VARIATION_URI
+            if (email) extraLeft = "@"
+            if (url) extraLeft = "/"
+        }
+
+        actionLabel = actionFor(info)
+    }
+
+    private fun actionFor(info: EditorInfo?): String {
+        val action = info?.imeOptions?.and(EditorInfo.IME_MASK_ACTION)
+            ?: EditorInfo.IME_ACTION_NONE
+        return when (action) {
+            EditorInfo.IME_ACTION_SEARCH -> "\uD83D\uDD0D"
+            EditorInfo.IME_ACTION_SEND -> "\u2709"
+            EditorInfo.IME_ACTION_NEXT -> "\u21E5"
+            EditorInfo.IME_ACTION_DONE, EditorInfo.IME_ACTION_GO -> "\u2713"
+            else -> "\u21B5"
+        }
+    }
+
     // ── жизненный цикл ───────────────────────────────────────
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // Поворот экрана, split-screen, смена темы: вью пересоздаётся,
+        // но состояние ввода (shift, caps, страница) не теряем.
+        keepStateOnce = true
+        root?.requestLayout()
+    }
+
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         stopRepeat()
         loadColors()
-        page = Page.LETTERS
-        shift = if (prefs.autoShift) ShiftState.ONCE else ShiftState.OFF
-        lastChar = ' '
+        readEditorInfo(info)
+
+        val keep = restarting || keepStateOnce
+        keepStateOnce = false
+
+        if (!keep) {
+            page = if (isNumberField(info)) Page.SYMBOLS else Page.LETTERS
+            sentenceStart = true
+            shift = if (canAutoCapitalize()) ShiftState.ONCE else ShiftState.OFF
+            lastChar = ' '
+        }
+
         render()
     }
+
+    private fun isNumberField(info: EditorInfo?): Boolean {
+        val type = info?.inputType ?: return false
+        val cls = type and InputType.TYPE_MASK_CLASS
+        return cls == InputType.TYPE_CLASS_NUMBER || cls == InputType.TYPE_CLASS_PHONE
+    }
+
+    private fun canAutoCapitalize(): Boolean =
+        !isSensitive && prefs.autoShift && (capSentences || capWords)
 
     override fun onFinishInputView(finishingInput: Boolean) {
         stopRepeat()
