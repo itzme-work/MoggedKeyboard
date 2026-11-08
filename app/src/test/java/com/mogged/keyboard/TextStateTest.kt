@@ -34,31 +34,36 @@ class TextStateTest {
 
     @Test
     fun autoShiftAfterDotAndSpace() {
-        // Точка сразу включает заглавную, даже если пробела ещё нет.
+        // Сам знак заглавную не включает: иначе «t.me», «file.txt» и «3.5» ломались бы.
         val afterDot = CapsPolicy.afterInput(ShiftState.OFF, ".", false, true, true, false)
-        assertEquals(ShiftState.ONCE, afterDot)
+        assertEquals(ShiftState.OFF, afterDot)
         assertTrue(CapsPolicy.sentenceStartAfter(".", false))
 
-        // Пробел после ONCE не гасит автозаглавную: следующая буква снова заглавная.
-        val afterSpace = CapsPolicy.afterInput(ShiftState.ONCE, " ", true, true, true, false)
+        // А вот пробел после точки — включает.
+        val afterSpace = CapsPolicy.afterInput(
+            ShiftState.OFF, " ", sentenceStartBefore = true,
+            autoShift = true, capSentences = true, capWords = false
+        )
         assertEquals(ShiftState.ONCE, afterSpace)
     }
 
     @Test
-    fun autoShiftAfterQuestionAndExclamation() {
-        listOf("!", "?").forEach { mark ->
+    fun punctuationDoesNotCapitalizeByItself() {
+        listOf("!", "?", ".").forEach { mark ->
             assertEquals(
                 "после «$mark»",
-                ShiftState.ONCE,
+                ShiftState.OFF,
                 CapsPolicy.afterInput(ShiftState.OFF, mark, false, true, true, false)
             )
         }
     }
 
     @Test
-    fun noAutoShiftAfterPunctuationWhenFieldDoesNotAsk() {
-        val after = CapsPolicy.afterInput(ShiftState.OFF, ".", false, true, false, false)
-        assertEquals(ShiftState.OFF, after)
+    fun lowercaseContinuesAfterDotWithoutSpace() {
+        // «t.me»: после точки буква остаётся строчной, а начало предложения «съедается» буквой.
+        assertTrue(CapsPolicy.sentenceStartAfter(".", false))
+        assertEquals("m", CapsPolicy.apply("m", ShiftState.OFF))
+        assertFalse(CapsPolicy.sentenceStartAfter("m", true))
     }
 
     @Test
