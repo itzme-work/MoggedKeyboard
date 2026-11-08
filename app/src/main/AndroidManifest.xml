@@ -4,6 +4,7 @@
     <!-- Интернет нужен только для проверки и скачивания обновлений с GitHub. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
         android:allowBackup="true"
