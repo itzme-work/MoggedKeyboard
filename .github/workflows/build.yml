@@ -50,11 +50,25 @@ jobs:
       - name: Gradle 8.7
         run: |
           set -e
-          # Качаем дистрибутив сами: у setup-gradle сейчас сбоит кэш,
-          # а -bin на CDN отдаёт 504. -all — тот же Gradle 8.7.
+          # Официальный CDN сейчас отдаёт 504 на 8.7, поэтому берём тот же
+          # дистрибутив с зеркал и сверяем SHA-256 официальной суммы.
           ZIP="$RUNNER_TEMP/gradle.zip"
-          curl -fsSL --retry 8 --retry-all-errors --retry-delay 10 \
-            -o "$ZIP" "https://services.gradle.org/distributions/gradle-8.7-all.zip"
+          OK=0
+          for URL in \
+            "https://mirrors.cloud.tencent.com/gradle/gradle-8.7-bin.zip" \
+            "https://repo.huaweicloud.com/gradle/gradle-8.7-bin.zip"
+          do
+            echo "Скачиваю Gradle: $URL"
+            if curl -fsSL --retry 3 --retry-all-errors --retry-delay 5 -o "$ZIP" "$URL"; then
+              OK=1
+              break
+            fi
+          done
+          if [ "$OK" -ne 1 ]; then
+            echo "::error::Не удалось скачать Gradle 8.7 ни с одного зеркала."
+            exit 1
+          fi
+          echo "544c35d6bd849ae8a5ed0bcea39ba677dc40f49df7d1835561582da2009b961d  $ZIP" | sha256sum -c -
           unzip -q "$ZIP" -d "$RUNNER_TEMP"
           "$RUNNER_TEMP/gradle-8.7/bin/gradle" --version
           echo "$RUNNER_TEMP/gradle-8.7/bin" >> "$GITHUB_PATH"
