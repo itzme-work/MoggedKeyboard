@@ -12,6 +12,7 @@ import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.inputmethodservice.InputMethodService
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.VibrationEffect
@@ -67,6 +68,8 @@ class MoggedKeyboardService : InputMethodService() {
     // текущие настройки, чтобы не читать SharedPreferences на каждое нажатие
     private var selTheme = "system"
     private var keyRadiusDp = 11
+    private var widthPercent = 100
+    private var oneHand = "off"
     private var showHints = true
     private var previewOn = true
     private var numberRow = false
@@ -76,6 +79,8 @@ class MoggedKeyboardService : InputMethodService() {
     private var soundOn = false
     private var vibrateStrength = 40
     private var soundVolume = 35
+    private var hapticStyle = HapticStyle.CLICK
+    private var hapticStrong = true
 
     /** Тема, с которой построен текущий input view. */
     private var builtTheme: String? = null
@@ -145,6 +150,8 @@ class MoggedKeyboardService : InputMethodService() {
     private fun loadPrefs() {
         selTheme = prefs.theme
         keyRadiusDp = prefs.keyRadius
+        widthPercent = prefs.width
+        oneHand = prefs.oneHand
         showHints = prefs.hints
         previewOn = prefs.keyPreview
         numberRow = prefs.numberRow
@@ -154,6 +161,8 @@ class MoggedKeyboardService : InputMethodService() {
         soundOn = prefs.sound
         vibrateStrength = prefs.vibrateStrength
         soundVolume = prefs.volume
+        hapticStyle = Haptics.parse(prefs.hapticStyle)
+        hapticStrong = prefs.hapticStrong
     }
 
     // ── создание разметки клавиатуры ─────────────────────────
@@ -172,7 +181,12 @@ class MoggedKeyboardService : InputMethodService() {
 
         val r = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
+            // Режим одной руки прижимает блок клавиш к выбранному краю.
+            gravity = when (Widths.side(oneHand)) {
+                -1 -> Gravity.LEFT
+                1 -> Gravity.RIGHT
+                else -> Gravity.CENTER_HORIZONTAL
+            }
             setPadding(dp(4), dp(6), dp(4), dp(8))
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -397,7 +411,7 @@ class MoggedKeyboardService : InputMethodService() {
             }
 
             Key.Shift -> frame.setOnClickListener {
-                tap()
+                tap(strongKey = true)
                 cycleShift()
             }
 
@@ -422,7 +436,7 @@ class MoggedKeyboardService : InputMethodService() {
             }
 
             Key.Enter -> frame.setOnClickListener {
-                tap()
+                tap(strongKey = true)
                 enterKey()
             }
 
@@ -456,14 +470,14 @@ class MoggedKeyboardService : InputMethodService() {
                     if (switched) {
                         switched = false
                     } else {
-                        tap()
+                        tap(strongKey = true)
                         type(" ")
                     }
                 }
                 frame.setOnLongClickListener {
                     if (!switched) {
                         switched = true
-                        tap()
+                        tap(strongKey = true)
                         switchLang()
                     }
                     true
@@ -822,19 +836,33 @@ class MoggedKeyboardService : InputMethodService() {
     }
 
     // ── тактильный отклик ────────────────────────────────────
-    private fun tap() {
+    private fun tap(strongKey: Boolean = false) {
         // Нажатие на любую клавишу закрывает меню альтернатив.
         dismissAlternatives()
-        vibrate()
+        vibrate(strongKey)
         if (soundOn) clickSound?.play(soundVolume.toFloat() / 100f)
     }
 
-    private fun vibrate() {
+    @Suppress("InlinedApi")
+    private fun vibrate(strongKey: Boolean = false) {
         if (!vibrateOn) return
         val v = vibrator ?: return
-        val amplitude = (vibrateStrength.coerceIn(1, 100) * 255 / 100).coerceIn(1, 255)
+
+        val style = Haptics.effective(hapticStyle, strongKey, hapticStrong)
         try {
-            v.vibrate(VibrationEffect.createOneShot(18L, amplitude))
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                // Готовые системные эффекты: тактильно различимы без настройки амплитуды.
+                val effect = when (style) {
+                    HapticStyle.TICK -> VibrationEffect.EFFECT_TICK
+                    HapticStyle.STRONG -> VibrationEffect.EFFECT_HEAVY_CLICK
+                    HapticStyle.CLICK -> VibrationEffect.EFFECT_CLICK
+                }
+                v.vibrate(VibrationEffect.createPredefined(effect))
+            } else {
+                // Android 8–9: различим характер длительностью и силой.
+                val amplitude = (vibrateStrength.coerceIn(1, 100) * 255 / 100).coerceIn(1, 255)
+                v.vibrate(VibrationEffect.createOneShot(Haptics.durationMs(style), amplitude))
+            }
         } catch (t: Throwable) {
             // вибрация может быть отключена системой
         }
@@ -957,11 +985,12 @@ class MoggedKeyboardService : InputMethodService() {
     private fun dp(value: Int): Int =
         (value * resources.displayMetrics.density).roundToInt()
 
-    /** Ширина клавиатуры: на телефоне — весь экран, на планшете — не шире 720dp. */
+    /** Ширина клавиатуры: процент из настроек, на планшете — не шире 720dp. */
     private fun contentWidth(): Int {
         val metrics = resources.displayMetrics
         val available = metrics.widthPixels / metrics.density - 8f
-        return dp(available.coerceIn(240f, 720f).roundToInt())
+        val block = Widths.blockDp(available, widthPercent).coerceAtMost(available)
+        return dp(block.roundToInt())
     }
 
     /** Подбираем кегль под реальную ширину клавиши и высоту ряда. */
