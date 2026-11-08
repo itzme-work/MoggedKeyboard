@@ -19,17 +19,23 @@
     <string name="update_check">Проверить обновления</string>
     <string name="update_checking">Проверяю обновления…</string>
     <string name="update_none">Не удалось проверить: нет связи с GitHub.</string>
+    <string name="update_bad_data">GitHub вернул некорректные данные об обновлении.</string>
     <string name="update_fresh">У вас последняя версия (%1$s).</string>
     <string name="update_available">Доступна версия %1$s</string>
     <string name="update_download">Скачать обновление</string>
     <string name="update_downloading">Скачиваю…</string>
-    <string name="update_ready">Загрузка завершена — открываю установщик.</string>
+    <string name="update_ready">Загрузка проверена — открываю установщик.</string>
     <string name="update_error">Не удалось скачать обновление.</string>
+    <string name="update_corrupt">Файл повреждён или не совпал SHA-256. Скачивание отменено.</string>
+    <string name="update_no_space">Недостаточно свободного места для обновления.</string>
     <string name="update_allow">Разрешите установку из этого приложения и нажмите снова.</string>
+    <string name="update_install_failed">Не удалось открыть установщик.</string>
     <string name="pref_updates">Проверять обновления</string>
     <string name="pref_vibrate">Вибрация при нажатии</string>
     <string name="pref_sound">Звук нажатий</string>
     <string name="pref_autoshift">Заглавная после точки</string>
+
+    <string name="changelog_title">Что нового</string>
 
     <string name="about_title">О приложении</string>
     <string name="about_text">Клавиатура работает на устройстве: набранный текст никуда не отправляется. Интернет нужен только для проверки и скачивания обновлений с GitHub — это можно выключить в настройках. Цвета берутся из системной палитры Material You (Android 12+), поэтому клавиатура настраивается под обои и тему телефона.\n\nПереключение языка — клавиша с глобусом. Долгое нажатие на «е» даёт «ё», на «ь» — «ъ». Удержание Backspace удаляет текст подряд.</string>
