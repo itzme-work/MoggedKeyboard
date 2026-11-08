@@ -6,12 +6,25 @@ package com.mogged.keyboard
  */
 object CapsPolicy {
 
-    /** Обычное нажатие Shift: выкл → одна заглавная → Caps Lock → выкл. */
-    fun next(state: ShiftState): ShiftState = when (state) {
-        ShiftState.OFF -> ShiftState.ONCE
-        ShiftState.ONCE -> ShiftState.CAPS
-        ShiftState.CAPS -> ShiftState.OFF
-    }
+    /**
+     * Нажатие Shift.
+     *
+     * Выключенный Shift даёт одну заглавную; повторное нажатие в пределах
+     * двойного тапа включает Caps Lock; одиночное нажатие по одной заглавной
+     * (в том числе автоматической) выключает Shift.
+     *
+     * @param msSinceLastTap сколько прошло с предыдущего нажатия Shift,
+     *   Long.MAX_VALUE — если его ещё не было
+     * @param doubleTapMs порог двойного нажатия, обычно
+     *   ViewConfiguration.getDoubleTapTimeout()
+     */
+    fun next(state: ShiftState, msSinceLastTap: Long, doubleTapMs: Long): ShiftState =
+        when (state) {
+            ShiftState.OFF -> ShiftState.ONCE
+            ShiftState.ONCE ->
+                if (msSinceLastTap in 0..doubleTapMs) ShiftState.CAPS else ShiftState.OFF
+            ShiftState.CAPS -> ShiftState.OFF
+        }
 
     /** Одиночная буква становится заглавной, если Shift или Caps включён. */
     fun apply(raw: String, state: ShiftState): String {
