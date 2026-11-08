@@ -3,6 +3,40 @@
     <string name="app_name">Mogged Keyboard</string>
     <string name="ime_name">Mogged Keyboard</string>
 
+    <string name="sec_home">Главная</string>
+    <string name="sec_look">Вид</string>
+    <string name="sec_input">Ввод</string>
+    <string name="sec_feel">Отклик</string>
+    <string name="sec_more">Ещё</string>
+
+    <string name="preview_title">Предпросмотр</string>
+    <string name="preview_desc">Мини-предпросмотр клавиатуры</string>
+
+    <string name="reset_section">Сбросить раздел</string>
+    <string name="reset_all">Сбросить всё</string>
+    <string name="reset_title">Сбросить настройки?</string>
+    <string name="reset_text">Настройки вернутся к значениям по умолчанию. Ключ подписи и пройденный первый запуск не затрагиваются.</string>
+    <string name="reset_ok">Сбросить</string>
+    <string name="reset_cancel">Отмена</string>
+    <string name="reset_done">Настройки сброшены</string>
+
+    <string name="home_update_title">Есть обновление</string>
+    <string name="home_update_action">Открыть обновления</string>
+    <string name="home_whats_new">Что нового</string>
+
+    <string name="theme_auto_short">Авто</string>
+    <string name="theme_amoled_short">AMOLED</string>
+    <string name="width_label">Ширина</string>
+    <string name="height_label">Высота</string>
+    <string name="radius_label">Радиус клавиш</string>
+    <string name="vibration_label">Сила вибрации</string>
+    <string name="volume_label">Громкость</string>
+    <string name="width_value_short">%1$d%%</string>
+    <string name="height_value_short">%1$d dp</string>
+    <string name="radius_value_short">%1$d dp</string>
+    <string name="vibration_value_short">%1$d%%</string>
+    <string name="volume_value_short">%1$d%%</string>
+
     <string name="subtitle">Своя клавиатура в стиле Material You</string>
 
     <string name="status_title">Статус</string>
