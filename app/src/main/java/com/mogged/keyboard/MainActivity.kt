@@ -3,6 +3,7 @@ package com.mogged.keyboard
 import android.content.Intent
 import android.graphics.Typeface
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.text.SpannableStringBuilder
@@ -179,6 +180,8 @@ class MainActivity : AppCompatActivity() {
             prefs.vibrateStrength, R.string.vibration_value
         ) { prefs.vibrateStrength = it }
 
+        hideLegacyVibration()
+
         setupSlider(
             R.id.sldVolume, R.id.volumeValue, 0f, 100f, 1f,
             prefs.volume, R.string.volume_value
@@ -243,6 +246,17 @@ class MainActivity : AppCompatActivity() {
                 R.id.hapticStrong -> Haptics.key(HapticStyle.STRONG)
                 else -> Haptics.key(HapticStyle.CLICK)
             }
+        }
+    }
+
+    /**
+     * На Android 10+ сила вибрации не действует: характер задают системные
+     * эффекты, поэтому ползунок силы и подпись к нему убираем.
+     */
+    private fun hideLegacyVibration() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        listOf(R.id.vibrationValue, R.id.sldVibration, R.id.vibrationHint).forEach { id ->
+            findViewById<View>(id).visibility = View.GONE
         }
     }
 
@@ -313,10 +327,32 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadBackup(uri: Uri) {
+        // Читаем не больше лимита: огромный файл — точно не наша копия.
+        var tooBig = false
         val text = try {
-            contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+            contentResolver.openInputStream(uri)?.use { input ->
+                val buffer = ByteArray(Backup.MAX_BYTES + 1)
+                var total = 0
+                while (total < buffer.size) {
+                    val read = input.read(buffer, total, buffer.size - total)
+                    if (read <= 0) break
+                    total += read
+                }
+                if (total > Backup.MAX_BYTES) {
+                    tooBig = true
+                    null
+                } else {
+                    String(buffer, 0, total, Charsets.UTF_8)
+                }
+            }
         } catch (t: Throwable) {
             null
+        }
+
+        if (tooBig) {
+            // Слишком большой файл — тоже «не наша копия», настройки не трогаем.
+            toast(R.string.backup_bad)
+            return
         }
         if (text == null) {
             toast(R.string.backup_read_failed)
