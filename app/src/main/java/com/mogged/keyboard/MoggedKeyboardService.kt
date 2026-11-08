@@ -1,6 +1,7 @@
 package com.mogged.keyboard
 
 import android.annotation.SuppressLint
+import android.animation.ValueAnimator
 import android.content.Context
 import android.content.SharedPreferences
 import android.content.res.ColorStateList
@@ -29,6 +30,7 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.PopupWindow
 import android.widget.TextView
@@ -63,7 +65,7 @@ class MoggedKeyboardService : InputMethodService() {
     private var isSensitive = false
     private var extraLeft = ","
     private var extraRight = "."
-    private var actionLabel = "\u21B5"
+    private var enterIcon = R.drawable.ic_enter
 
     private var sentenceStart = true
 
@@ -107,6 +109,10 @@ class MoggedKeyboardService : InputMethodService() {
     private var cOnPrimary = 0xFF381E72.toInt()
     private var cPrimaryContainer = 0xFF4F378B.toInt()
     private var cOnPrimaryContainer = 0xFFEADDFF.toInt()
+    private var cSurfaceContainerHigh = 0xFF2B2930.toInt()
+    private var cSurfaceContainerHighest = 0xFF36343B.toInt()
+    private var cSecondaryContainer = 0xFF4A4458.toInt()
+    private var cOnSecondaryContainer = 0xFFE8DEF8.toInt()
     private var cRipple = 0x33FFFFFF
 
     // размеры шрифта, зависят от экрана
@@ -232,6 +238,9 @@ class MoggedKeyboardService : InputMethodService() {
 
         root = r
         rowsBox = box
+        // Новый набор вью: подписи и цвета надо построить заново.
+        builtSignature = null
+        holders.clear()
         readEditorInfo(currentInputEditorInfo)
         render()
         r.post { ViewCompat.requestApplyInsets(r) }
@@ -269,6 +278,22 @@ class MoggedKeyboardService : InputMethodService() {
             attr(com.google.android.material.R.attr.colorPrimaryContainer, cPrimaryContainer)
         cOnPrimaryContainer =
             attr(com.google.android.material.R.attr.colorOnPrimaryContainer, cOnPrimaryContainer)
+        cSurfaceContainerHigh = attr(
+            com.google.android.material.R.attr.colorSurfaceContainerHigh,
+            cSurfaceContainerHigh
+        )
+        cSurfaceContainerHighest = attr(
+            com.google.android.material.R.attr.colorSurfaceContainerHighest,
+            cSurfaceContainerHighest
+        )
+        cSecondaryContainer = attr(
+            com.google.android.material.R.attr.colorSecondaryContainer,
+            cSecondaryContainer
+        )
+        cOnSecondaryContainer = attr(
+            com.google.android.material.R.attr.colorOnSecondaryContainer,
+            cOnSecondaryContainer
+        )
 
         // Клавиши — тот же фон, чуть светлее/темнее (эффект «поднятой» поверхности).
         cKey = blend(cSurface, cOnKey, 0.10f)
@@ -283,6 +308,10 @@ class MoggedKeyboardService : InputMethodService() {
             cOnPrimary = 0xFF381E72.toInt()
             cPrimaryContainer = 0xFF332D41.toInt()
             cOnPrimaryContainer = 0xFFEADDFF.toInt()
+            cSurfaceContainerHigh = 0xFF151419.toInt()
+            cSurfaceContainerHighest = 0xFF1D1C21.toInt()
+            cSecondaryContainer = 0xFF2A2633.toInt()
+            cOnSecondaryContainer = 0xFFE6E0F0.toInt()
             cRipple = 0x33FFFFFF
         }
     }
@@ -312,16 +341,39 @@ class MoggedKeyboardService : InputMethodService() {
         Color.red(color), Color.green(color), Color.blue(color)
     )
 
+    private var builtSignature: String? = null
+    private val holders = mutableListOf<KeyHolder>()
+
+    /** Всё, что нужно, чтобы обновить клавишу без пересоздания вью. */
+    private class KeyHolder(
+        val frame: FrameLayout,
+        val text: TextView,
+        val icon: ImageView?,
+        val hint: TextView?,
+        val def: Key
+    )
+
     private fun render() {
         val box = rowsBox ?: return
         root?.setBackgroundColor(cSurface)
-        box.removeAllViews()
 
         val layout = Layouts.page(
             page, lang, extraLeft, extraRight,
             numberRow && page == Page.LETTERS
         )
+
+        // Меняется только Shift или вводится буква — обновляем подписи и цвета
+        // на месте. Полная пересборка только при смене страницы, языка, набора
+        // клавиш и настроек вида: иначе клавиатура мигает на каждом нажатии.
+        if (signature(layout) == builtSignature) {
+            holders.forEach { updateKey(it) }
+            return
+        }
+
+        box.removeAllViews()
+        holders.clear()
         computeSizes(layout.size)
+
         layout.forEach { keys ->
             val row = LinearLayout(ctx).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -329,19 +381,40 @@ class MoggedKeyboardService : InputMethodService() {
                     LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
                 )
             }
-            keys.forEach { key -> row.addView(makeKey(key)) }
+            keys.forEach { key ->
+                val holder = buildKey(key)
+                holders.add(holder)
+                row.addView(holder.frame)
+            }
             box.addView(row)
         }
+        builtSignature = signature(layout)
+    }
+
+    /**
+     * Всё, что требует полной пересборки: страница, язык, состав клавиш,
+     * настройки вида и размеры. Ввод букв и Shift сюда не входят.
+     */
+    private fun signature(layout: List<List<Key>>): String = buildString {
+        append(page).append('/').append(lang).append('/')
+        append(extraLeft).append(extraRight).append('/')
+        append(numberRow).append('/').append(showHints).append('/')
+        append(previewOn).append('/').append(isSensitive).append('/')
+        append(keyRadiusDp).append('/').append(selTheme).append('/')
+        append(contentWidth()).append('/').append(keyboardHeight()).append('/')
+        append(layout.size).append('/').append(layout.firstOrNull()?.size ?: 0)
     }
 
     @SuppressLint("ClickableViewAccessibility")
-    private fun makeKey(def: Key): View {
+    private fun buildKey(def: Key): KeyHolder {
+        val base = radiusFor(def)
+
         val frame = FrameLayout(ctx).apply {
             isClickable = true
             isFocusable = false
             contentDescription = describe(def)
             minimumHeight = dp(48)
-            background = keyBackground(backgroundFor(def))
+            background = keyBackground(backgroundFor(def), base)
             layoutParams = LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.MATCH_PARENT, weightFor(def)
             ).apply {
@@ -356,7 +429,7 @@ class MoggedKeyboardService : InputMethodService() {
             text = label(def)
             textSize = sizeFor(def)
             setTextColor(colorFor(def))
-            typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+            typeface = letterTypeface(def)
             isClickable = false
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
@@ -368,13 +441,33 @@ class MoggedKeyboardService : InputMethodService() {
             )
         )
 
+        // Функциональные клавиши рисуем векторной иконкой, а не символом Юникода.
+        val icon: ImageView?
+        if (isIconKey(def)) {
+            val iconPx = iconSize()
+            icon = ImageView(ctx).apply {
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                isClickable = false
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                setImageResource(iconFor(def))
+                imageTintList = ColorStateList.valueOf(colorFor(def))
+            }
+            frame.addView(
+                icon,
+                FrameLayout.LayoutParams(iconPx, iconPx, Gravity.CENTER)
+            )
+            main.visibility = View.GONE
+        } else {
+            icon = null
+        }
+
         // В полях паролей и PIN подсказки не показываем.
-        val hintText = if (def is Key.Char && showHints && !isSensitive) def.hint else null
-        if (hintText != null) {
-            val hint = TextView(ctx).apply {
-                text = hintText
-                textSize = (specialSize * 0.66f).coerceAtLeast(8f)
-                setTextColor(withAlpha(colorFor(def), 0.65f))
+        val hint: TextView?
+        if (def is Key.Char && showHints && !isSensitive) {
+            hint = TextView(ctx).apply {
+                text = def.hint
+                textSize = hintSize()
+                setTextColor(withAlpha(colorFor(def), 0.55f))
                 gravity = Gravity.TOP or Gravity.END
                 includeFontPadding = false
                 setPadding(0, dp(4), dp(5), 0)
@@ -389,15 +482,46 @@ class MoggedKeyboardService : InputMethodService() {
                     Gravity.TOP or Gravity.END
                 )
             )
+        } else {
+            hint = null
         }
 
+        bindActions(frame, def, base)
+        return KeyHolder(frame, main, icon, hint, def)
+    }
+
+    /** Применяет текущее состояние (Shift, Caps, язык) к уже созданной клавише. */
+    private fun updateKey(holder: KeyHolder) {
+        val def = holder.def
+        val fg = colorFor(def)
+
+        // Фон меняем в самом drawable: смена Shift не трогает разметку.
+        val ripple = holder.frame.background as? RippleDrawable
+        (ripple?.getDrawable(0) as? GradientDrawable)?.setColor(backgroundFor(def))
+
+        holder.text.text = label(def)
+        holder.text.textSize = sizeFor(def)
+        holder.text.setTextColor(fg)
+        holder.text.typeface = letterTypeface(def)
+
+        holder.hint?.setTextColor(withAlpha(fg, 0.55f))
+
+        holder.icon?.let { view ->
+            view.setImageResource(iconFor(def))
+            view.imageTintList = ColorStateList.valueOf(fg)
+        }
+        holder.frame.contentDescription = describe(def)
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun bindActions(frame: FrameLayout, def: Key, base: Float) {
         when (def) {
             is Key.Char -> {
                 frame.setOnClickListener {
                     tap()
                     type(def.text)
                 }
-                frame.setOnTouchListener { view, event ->
+                onTouch(frame, base) { view, event ->
                     when (event.actionMasked) {
                         MotionEvent.ACTION_DOWN ->
                             if (previewOn) {
@@ -428,6 +552,7 @@ class MoggedKeyboardService : InputMethodService() {
                     capsLock()
                     true
                 }
+                onTouch(frame, base)
             }
 
             Key.Backspace -> {
@@ -440,7 +565,7 @@ class MoggedKeyboardService : InputMethodService() {
                     startRepeat { backspace() }
                     true
                 }
-                frame.setOnTouchListener { _, event ->
+                onTouch(frame, base) { _, event ->
                     if (event.action == MotionEvent.ACTION_UP ||
                         event.action == MotionEvent.ACTION_CANCEL
                     ) {
@@ -450,9 +575,12 @@ class MoggedKeyboardService : InputMethodService() {
                 }
             }
 
-            Key.Enter -> frame.setOnClickListener {
-                tap(strongKey = true)
-                enterKey()
+            Key.Enter -> {
+                frame.setOnClickListener {
+                    tap(strongKey = true)
+                    enterKey()
+                }
+                onTouch(frame, base)
             }
 
             Key.Space -> {
@@ -460,7 +588,23 @@ class MoggedKeyboardService : InputMethodService() {
                 var downY = 0f
                 var switched = false
 
-                frame.setOnTouchListener { _, event ->
+                frame.setOnClickListener {
+                    if (switched) {
+                        switched = false
+                    } else {
+                        tap(strongKey = true)
+                        type(" ")
+                    }
+                }
+                frame.setOnLongClickListener {
+                    if (!switched) {
+                        switched = true
+                        tap(strongKey = true)
+                        switchLang()
+                    }
+                    true
+                }
+                onTouch(frame, base) { _, event ->
                     when (event.actionMasked) {
                         MotionEvent.ACTION_DOWN -> {
                             downX = event.rawX
@@ -481,22 +625,6 @@ class MoggedKeyboardService : InputMethodService() {
                     }
                     false
                 }
-                frame.setOnClickListener {
-                    if (switched) {
-                        switched = false
-                    } else {
-                        tap(strongKey = true)
-                        type(" ")
-                    }
-                }
-                frame.setOnLongClickListener {
-                    if (!switched) {
-                        switched = true
-                        tap(strongKey = true)
-                        switchLang()
-                    }
-                    true
-                }
             }
 
             Key.LangKey -> {
@@ -510,33 +638,70 @@ class MoggedKeyboardService : InputMethodService() {
                     pickKeyboard()
                     true
                 }
+                onTouch(frame, base)
             }
 
-            Key.ToSymbols -> frame.setOnClickListener {
-                tap()
-                page = Page.SYMBOLS
-                render()
+            Key.ToSymbols -> {
+                frame.setOnClickListener {
+                    tap()
+                    page = Page.SYMBOLS
+                    render()
+                }
+                onTouch(frame, base)
             }
 
-            Key.ToSymbols2 -> frame.setOnClickListener {
-                tap()
-                page = Page.SYMBOLS2
-                render()
+            Key.ToSymbols2 -> {
+                frame.setOnClickListener {
+                    tap()
+                    page = Page.SYMBOLS2
+                    render()
+                }
+                onTouch(frame, base)
             }
 
-            Key.ToLetters -> frame.setOnClickListener {
-                tap()
-                page = Page.LETTERS
-                render()
+            Key.ToLetters -> {
+                frame.setOnClickListener {
+                    tap()
+                    page = Page.LETTERS
+                    render()
+                }
+                onTouch(frame, base)
             }
         }
-
-        return frame
     }
 
-    private fun keyBackground(color: Int): Drawable {
-        val radius = dp(keyRadiusDp).toFloat()
+    /**
+     * Касания клавиши: радиус плавно растёт при нажатии (110 мс) и
+     * возвращается обратно. Дополнительная логика (предпросмотр, свайп)
+     * вызывается следом и не мешает клику.
+     */
+    @SuppressLint("ClickableViewAccessibility")
+    private fun onTouch(
+        frame: FrameLayout,
+        base: Float,
+        extra: ((View, MotionEvent) -> Boolean)? = null
+    ) {
+        frame.setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> animateRadius(view, base, base * 1.16f)
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
+                    animateRadius(view, base * 1.16f, base)
+            }
+            extra?.invoke(view, event) ?: false
+        }
+    }
 
+    private fun animateRadius(view: View, from: Float, to: Float) {
+        val ripple = view.background as? RippleDrawable ?: return
+        val content = ripple.getDrawable(0) as? GradientDrawable ?: return
+        ValueAnimator.ofFloat(from, to).apply {
+            duration = 110
+            addUpdateListener { content.cornerRadius = it.animatedValue as Float }
+            start()
+        }
+    }
+
+    private fun keyBackground(color: Int, radius: Float): Drawable {
         val content = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = radius
@@ -561,14 +726,14 @@ class MoggedKeyboardService : InputMethodService() {
         val bubble = TextView(ctx).apply {
             this.text = text
             textSize = (letterSize * 1.35f).coerceAtMost(34f)
-            setTextColor(cOnKey)
+            setTextColor(cOnPrimaryContainer)
             gravity = Gravity.CENTER
             includeFontPadding = false
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(keyRadiusDp).toFloat()
-                setColor(cKey)
-                setStroke(dp(1), withAlpha(cPrimary, 0.65f))
+                // Форма та же, что у клавиши, — пузырь вырастает из неё.
+                cornerRadius = dp(keyRadiusDp + 6).toFloat()
+                setColor(cPrimaryContainer)
             }
         }
         val popup = PopupWindow(bubble, size, size, false).apply {
@@ -576,6 +741,7 @@ class MoggedKeyboardService : InputMethodService() {
             isFocusable = false
             setTouchable(false)
             setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            elevation = dp(6).toFloat()
         }
         try {
             popup.showAsDropDown(
@@ -610,9 +776,8 @@ class MoggedKeyboardService : InputMethodService() {
             setPadding(dp(6), dp(4), dp(6), dp(4))
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(16).toFloat()
-                setColor(cKey)
-                setStroke(dp(1), withAlpha(cPrimary, 0.55f))
+                cornerRadius = dp(20).toFloat()
+                setColor(cSurfaceContainerHigh)
             }
         }
 
@@ -622,7 +787,7 @@ class MoggedKeyboardService : InputMethodService() {
             val item = TextView(ctx).apply {
                 text = shown
                 textSize = letterSize
-                setTextColor(cPrimary)
+                setTextColor(colorFor(Key.Char(option)))
                 gravity = Gravity.CENTER
                 includeFontPadding = false
                 minWidth = dp(44)
@@ -681,14 +846,18 @@ class MoggedKeyboardService : InputMethodService() {
     }
 
     // ── внешний вид клавиш ───────────────────────────────────
+    private fun langName(): String = when (lang) {
+        Lang.RU -> "Русский"
+        Lang.EN -> "English"
+    }
+
     private fun label(def: Key): String = when (def) {
         // Буквы показываем так, как они будут введены: с учётом Shift и Caps.
         is Key.Char -> CapsPolicy.apply(def.text, shift)
-        Key.Shift -> if (shift == ShiftState.CAPS) "\u21EA" else "\u21E7"
-        Key.Backspace -> "\u232B"
-        Key.Enter -> actionLabel
-        Key.Space -> ""
-        Key.LangKey -> "\uD83C\uDF10"
+        // Функциональные клавиши рисуются иконкой.
+        Key.Shift, Key.Backspace, Key.Enter, Key.LangKey -> ""
+        // Пробел подписан языком, приглушённым цветом.
+        Key.Space -> langName()
         Key.ToSymbols -> "?123"
         Key.ToSymbols2 -> "=<"
         Key.ToLetters -> "ABC"
@@ -699,10 +868,14 @@ class MoggedKeyboardService : InputMethodService() {
             " " -> "Пробел"
             else -> CapsPolicy.apply(def.text, shift)
         }
-        Key.Shift -> if (shift == ShiftState.CAPS) "Капслок включён" else "Заглавные буквы"
+        Key.Shift -> when (shift) {
+            ShiftState.CAPS -> "Капслок включён"
+            ShiftState.ONCE -> "Одна заглавная"
+            ShiftState.OFF -> "Заглавные буквы"
+        }
         Key.Backspace -> "Удалить"
         Key.Enter -> "Ввод"
-        Key.Space -> "Пробел, смена языка свайпом"
+        Key.Space -> "Пробел, ${langName()}, смена языка свайпом"
         Key.LangKey -> "Сменить язык"
         Key.ToSymbols -> "Цифры и символы"
         Key.ToSymbols2 -> "Дополнительные символы"
@@ -711,25 +884,70 @@ class MoggedKeyboardService : InputMethodService() {
 
     private fun sizeFor(def: Key): Float = when (def) {
         is Key.Char -> if (def.text.length > 1) specialSize else letterSize
-        Key.Backspace -> letterSize * 0.9f
-        Key.Enter -> letterSize * 0.85f
-        Key.Shift -> letterSize * 0.82f
-        Key.LangKey -> letterSize * 0.82f
+        Key.Backspace, Key.Enter, Key.Shift, Key.LangKey -> 0f
         Key.ToSymbols, Key.ToSymbols2, Key.ToLetters -> specialSize * 0.85f
-        Key.Space -> letterSize
+        Key.Space -> specialSize * 0.8f
     }
 
+    private fun letterTypeface(def: Key): Typeface = when (def) {
+        is Key.Char, Key.ToSymbols, Key.ToSymbols2, Key.ToLetters ->
+            Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        else -> Typeface.create("sans-serif", Typeface.NORMAL)
+    }
+
+    /** Подсказка в углу — мельче и приглушённая. */
+    private fun hintSize(): Float = (specialSize * 0.62f).coerceAtLeast(8f)
+
+    private fun iconSize(): Int =
+        dp((letterSize * 1.05f).roundToInt().coerceIn(16, 30))
+
+    private fun isIconKey(def: Key): Boolean = when (def) {
+        Key.Shift, Key.Backspace, Key.LangKey, Key.Enter -> true
+        else -> false
+    }
+
+    private fun iconFor(def: Key): Int = when (def) {
+        Key.Shift -> when (shift) {
+            ShiftState.OFF -> R.drawable.ic_shift_off
+            ShiftState.ONCE -> R.drawable.ic_shift_once
+            ShiftState.CAPS -> R.drawable.ic_shift_caps
+        }
+        Key.Backspace -> R.drawable.ic_backspace
+        Key.LangKey -> R.drawable.ic_lang
+        Key.Enter -> enterIcon
+        else -> 0
+    }
+
+    /** Буквы — приподнятая поверхность, функциональные — вторичный контейнер. */
     private fun backgroundFor(def: Key): Int = when (def) {
+        is Key.Char -> cSurfaceContainerHigh
+        Key.Space -> cSurfaceContainerHighest
         Key.Enter -> cPrimary
-        Key.Shift -> if (shift == ShiftState.OFF) cKey else cPrimaryContainer
-        else -> cKey
+        Key.Shift -> when (shift) {
+            ShiftState.OFF -> cSecondaryContainer
+            ShiftState.ONCE -> cPrimaryContainer
+            ShiftState.CAPS -> cPrimary
+        }
+        Key.Backspace, Key.LangKey, Key.ToSymbols, Key.ToSymbols2, Key.ToLetters ->
+            cSecondaryContainer
     }
 
     private fun colorFor(def: Key): Int = when (def) {
+        is Key.Char -> cOnKey
+        Key.Space -> withAlpha(cOnKey, 0.60f)
         Key.Enter -> cOnPrimary
-        Key.Shift -> if (shift == ShiftState.OFF) cOnKey else cOnPrimaryContainer
-        else -> cOnKey
+        Key.Shift -> when (shift) {
+            ShiftState.OFF -> cOnSecondaryContainer
+            ShiftState.ONCE -> cOnPrimaryContainer
+            ShiftState.CAPS -> cOnPrimary
+        }
+        Key.Backspace, Key.LangKey, Key.ToSymbols, Key.ToSymbols2, Key.ToLetters ->
+            cOnSecondaryContainer
     }
+
+    /** Функциональные клавиши и Enter круглее буквенных. */
+    private fun radiusFor(def: Key): Float =
+        dp(if (def is Key.Char) keyRadiusDp else keyRadiusDp + 6).toFloat()
 
     private fun weightFor(def: Key): Float = when (def) {
         Key.Shift, Key.Backspace, Key.Enter -> 1.6f
@@ -936,18 +1154,19 @@ class MoggedKeyboardService : InputMethodService() {
             if (url) extraLeft = "/"
         }
 
-        actionLabel = actionFor(info)
+        enterIcon = enterIconFor(info)
     }
 
-    private fun actionFor(info: EditorInfo?): String {
+    /** Иконка Enter по imeOptions: перенос, поиск, отправить, далее, готово. */
+    private fun enterIconFor(info: EditorInfo?): Int {
         val action = info?.imeOptions?.and(EditorInfo.IME_MASK_ACTION)
             ?: EditorInfo.IME_ACTION_NONE
         return when (action) {
-            EditorInfo.IME_ACTION_SEARCH -> "\uD83D\uDD0D"
-            EditorInfo.IME_ACTION_SEND -> "\u2709"
-            EditorInfo.IME_ACTION_NEXT -> "\u21E5"
-            EditorInfo.IME_ACTION_DONE, EditorInfo.IME_ACTION_GO -> "\u2713"
-            else -> "\u21B5"
+            EditorInfo.IME_ACTION_SEARCH -> R.drawable.ic_search
+            EditorInfo.IME_ACTION_SEND -> R.drawable.ic_send
+            EditorInfo.IME_ACTION_NEXT -> R.drawable.ic_next
+            EditorInfo.IME_ACTION_DONE, EditorInfo.IME_ACTION_GO -> R.drawable.ic_done
+            else -> R.drawable.ic_enter
         }
     }
 
