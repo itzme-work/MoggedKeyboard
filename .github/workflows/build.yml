@@ -52,6 +52,9 @@ jobs:
         with:
           gradle-version: '8.7'
 
+      - name: Юнит-тесты
+        run: gradle testReleaseUnitTest --no-daemon --stacktrace
+
       - name: Lint
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -103,9 +106,15 @@ jobs:
 
           cat version.json
 
+          # Явное имя ассета: приложение ищет MoggedKeyboard.apk.
+          cp "$APK" MoggedKeyboard.apk
+
           gh release view latest >/dev/null 2>&1 || gh release create latest \
             --title "Mogged Keyboard" \
             --notes "Автоматическая сборка" \
             --latest
 
-          gh release upload latest "$APK#MoggedKeyboard.apk" version.json --clobber
+          gh release upload latest MoggedKeyboard.apk version.json --clobber
+
+          # Старое имя ассета из прошлых сборок больше не нужно.
+          gh release delete-asset latest app-release.apk --yes 2>/dev/null || true
