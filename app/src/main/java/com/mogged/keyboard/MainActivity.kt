@@ -3,16 +3,26 @@ package com.mogged.keyboard
 import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
+import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
+import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.slider.Slider
+import java.io.File
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var prefs: Prefs
+
+    private lateinit var updateStatus: TextView
+    private lateinit var updateButton: Button
+    private lateinit var updateProgress: ProgressBar
+
+    private var pendingUpdate: UpdateManager.Update? = null
+    private var busy = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -30,6 +40,13 @@ class MainActivity : AppCompatActivity() {
         val switchAuto = findViewById<MaterialSwitch>(R.id.swAutoShift)
         switchAuto.isChecked = prefs.autoShift
         switchAuto.setOnCheckedChangeListener { _, value -> prefs.autoShift = value }
+
+        val switchUpdates = findViewById<MaterialSwitch>(R.id.swUpdates)
+        switchUpdates.isChecked = prefs.checkUpdates
+        switchUpdates.setOnCheckedChangeListener { _, value ->
+            prefs.checkUpdates = value
+            if (value) checkUpdate(quiet = true)
+        }
 
         val heightValue = findViewById<TextView>(R.id.heightValue)
         heightValue.text = getString(R.string.height_value, prefs.height)
@@ -53,13 +70,22 @@ class MainActivity : AppCompatActivity() {
             val imm = getSystemService(InputMethodManager::class.java)
             imm?.showInputMethodPicker()
         }
+
+        updateStatus = findViewById(R.id.updateStatus)
+        updateButton = findViewById(R.id.btnUpdate)
+        updateProgress = findViewById(R.id.updateProgress)
+
+        updateStatus.text = getString(R.string.update_current, BuildConfig.VERSION_NAME)
+        updateButton.setOnClickListener { onUpdateClicked() }
     }
 
     override fun onResume() {
         super.onResume()
         updateStatus()
+        if (prefs.checkUpdates) checkUpdate(quiet = true)
     }
 
+    // ── статус клавиатуры ────────────────────────────────────
     private fun updateStatus() {
         val imm = getSystemService(InputMethodManager::class.java)
         val enabled = imm?.enabledInputMethodList?.any { it.packageName == packageName } == true
@@ -73,5 +99,94 @@ class MainActivity : AppCompatActivity() {
             else -> getString(R.string.status_off)
         }
         findViewById<TextView>(R.id.statusText).text = text
+    }
+
+    // ── обновления ───────────────────────────────────────────
+    private fun checkUpdate(quiet: Boolean) {
+        if (busy) return
+        if (quiet) {
+            Thread {
+                val found = UpdateManager.check()
+                if (found != null) runOnUiThread { showUpdate(found) }
+            }.start()
+        } else {
+            updateStatus.text = getString(R.string.update_checking)
+            Thread {
+                val found = UpdateManager.check()
+                runOnUiThread {
+                    when {
+                        found == null -> updateStatus.text = getString(R.string.update_none)
+                        else -> showUpdate(found)
+                    }
+                }
+            }.start()
+        }
+    }
+
+    private fun showUpdate(found: UpdateManager.Update) {
+        pendingUpdate = found
+        if (found.versionCode > BuildConfig.VERSION_CODE) {
+            updateStatus.text =
+                getString(R.string.update_available, "1.${found.versionCode}")
+            updateButton.text = getString(R.string.update_download)
+            updateButton.visibility = View.VISIBLE
+        } else {
+            updateStatus.text =
+                getString(R.string.update_fresh, BuildConfig.VERSION_NAME)
+            updateButton.text = getString(R.string.update_check)
+        }
+    }
+
+    private fun onUpdateClicked() {
+        if (busy) return
+
+        val found = pendingUpdate
+        if (found == null || found.versionCode <= BuildConfig.VERSION_CODE) {
+            updateButton.text = getString(R.string.update_check)
+            checkUpdate(quiet = false)
+            return
+        }
+
+        if (!UpdateManager.canInstall(this)) {
+            updateStatus.text = getString(R.string.update_allow)
+            UpdateManager.openInstallPermission(this)
+            return
+        }
+
+        startDownload(found)
+    }
+
+    private fun startDownload(found: UpdateManager.Update) {
+        busy = true
+        updateProgress.visibility = View.VISIBLE
+        updateProgress.progress = 0
+        updateButton.isEnabled = false
+        updateStatus.text = getString(R.string.update_downloading)
+
+        val target = File(cacheDir, "updates/MoggedKeyboard.apk")
+
+        Thread {
+            val ok = UpdateManager.download(found.apkUrl, target) { done, total ->
+                if (total > 0) {
+                    val percent = (done * 100L / total).toInt()
+                    runOnUiThread { updateProgress.progress = percent }
+                }
+            }
+
+            runOnUiThread {
+                busy = false
+                updateButton.isEnabled = true
+                updateProgress.visibility = View.GONE
+
+                if (ok) {
+                    updateStatus.text = getString(R.string.update_ready)
+                    if (!UpdateManager.install(this, target)) {
+                        updateStatus.text = getString(R.string.update_error)
+                    }
+                } else {
+                    updateStatus.text = getString(R.string.update_error)
+                }
+            }
+        }.start()
     }
 }
