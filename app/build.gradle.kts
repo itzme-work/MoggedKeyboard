@@ -56,6 +56,8 @@ android {
 
     lint {
         abortOnError = true
+        // Текстовый отчёт печатается в лог CI при падении.
+        textReport = true
         // Сборка не должна падать из-за «устаревших» версий библиотек.
         disable += setOf("GradleDependency", "OldTargetApi", "NewerVersionAvailable")
     }
