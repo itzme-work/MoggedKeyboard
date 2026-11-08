@@ -1,0 +1,309 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Вид: тема, ширина, одна рука, высота, радиус и живой предпросмотр. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingStart="16dp"
+    android:paddingEnd="16dp"
+    android:paddingBottom="24dp">
+
+    <com.google.android.material.card.MaterialCardView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        app:cardCornerRadius="24dp"
+        app:cardElevation="0dp"
+        app:strokeWidth="0dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <ImageView
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_nav_look"
+                    app:tint="?attr/colorOnSurfaceVariant" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="10dp"
+                    android:text="@string/theme_title"
+                    android:textAppearance="?attr/textAppearanceTitleSmall" />
+            </LinearLayout>
+
+            <com.google.android.material.button.MaterialButtonToggleGroup
+                android:id="@+id/themeGroup"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                app:selectionRequired="true"
+                app:singleSelection="true">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/themeSystem"
+                    style="?attr/materialButtonOutlinedStyle"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:minHeight="48dp"
+                    android:text="@string/theme_auto_short"
+                    android:textSize="12sp"
+                    app:autoSizeMaxTextSize="12sp"
+                    app:autoSizeMinTextSize="8sp"
+                    app:autoSizeTextType="uniform" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/themeLight"
+                    style="?attr/materialButtonOutlinedStyle"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:minHeight="48dp"
+                    android:text="@string/theme_light"
+                    android:textSize="12sp"
+                    app:autoSizeMaxTextSize="12sp"
+                    app:autoSizeMinTextSize="8sp"
+                    app:autoSizeTextType="uniform" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/themeDark"
+                    style="?attr/materialButtonOutlinedStyle"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:minHeight="48dp"
+                    android:text="@string/theme_dark"
+                    android:textSize="12sp"
+                    app:autoSizeMaxTextSize="12sp"
+                    app:autoSizeMinTextSize="8sp"
+                    app:autoSizeTextType="uniform" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/themeAmoled"
+                    style="?attr/materialButtonOutlinedStyle"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:minHeight="48dp"
+                    android:text="@string/theme_amoled_short"
+                    android:textSize="12sp"
+                    app:autoSizeMaxTextSize="12sp"
+                    app:autoSizeMinTextSize="8sp"
+                    app:autoSizeTextType="uniform" />
+            </com.google.android.material.button.MaterialButtonToggleGroup>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/width_label"
+                    android:textAppearance="?attr/textAppearanceBodyMedium" />
+
+                <TextView
+                    android:id="@+id/widthValue"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textAppearance="?attr/textAppearanceBodyMedium"
+                    android:textColor="?attr/colorOnSurfaceVariant" />
+            </LinearLayout>
+
+            <com.google.android.material.slider.Slider
+                android:id="@+id/sldWidth"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="@string/onehand_title"
+                android:textAppearance="?attr/textAppearanceTitleSmall" />
+
+            <com.google.android.material.button.MaterialButtonToggleGroup
+                android:id="@+id/oneHandGroup"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                app:selectionRequired="true"
+                app:singleSelection="true">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/oneHandOff"
+                    style="?attr/materialButtonOutlinedStyle"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:minHeight="48dp"
+                    android:text="@string/onehand_off" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/oneHandLeft"
+                    style="?attr/materialButtonOutlinedStyle"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:minHeight="48dp"
+                    android:text="@string/onehand_left" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/oneHandRight"
+                    style="?attr/materialButtonOutlinedStyle"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:minHeight="48dp"
+                    android:text="@string/onehand_right" />
+            </com.google.android.material.button.MaterialButtonToggleGroup>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="@string/onehand_hint"
+                android:textAppearance="?attr/textAppearanceBodySmall"
+                android:textColor="?attr/colorOnSurfaceVariant" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/height_label"
+                    android:textAppearance="?attr/textAppearanceBodyMedium" />
+
+                <TextView
+                    android:id="@+id/heightValue"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textAppearance="?attr/textAppearanceBodyMedium"
+                    android:textColor="?attr/colorOnSurfaceVariant" />
+            </LinearLayout>
+
+            <com.google.android.material.slider.Slider
+                android:id="@+id/sldHeight"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/radius_label"
+                    android:textAppearance="?attr/textAppearanceBodyMedium" />
+
+                <TextView
+                    android:id="@+id/radiusValue"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:textAppearance="?attr/textAppearanceBodyMedium"
+                    android:textColor="?attr/colorOnSurfaceVariant" />
+            </LinearLayout>
+
+            <com.google.android.material.slider.Slider
+                android:id="@+id/sldRadius"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+    <!-- Живой предпросмотр: меняется вместе с темой, шириной, одной рукой и радиусом -->
+    <com.google.android.material.card.MaterialCardView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        app:cardCornerRadius="24dp"
+        app:cardElevation="0dp"
+        app:strokeWidth="0dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <ImageView
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:contentDescription="@null"
+                    android:src="@drawable/ic_nav_input"
+                    app:tint="?attr/colorOnSurfaceVariant" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="10dp"
+                    android:text="@string/preview_title"
+                    android:textAppearance="?attr/textAppearanceTitleSmall" />
+            </LinearLayout>
+
+            <com.mogged.keyboard.MiniKeyboardPreview
+                android:id="@+id/miniPreview"
+                android:layout_width="match_parent"
+                android:layout_height="112dp"
+                android:layout_marginTop="10dp"
+                android:contentDescription="@string/preview_desc" />
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+    <Button
+        android:id="@+id/btnResetLook"
+        style="?attr/materialButtonOutlinedStyle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:minHeight="48dp"
+        android:text="@string/reset_section" />
+</LinearLayout>
