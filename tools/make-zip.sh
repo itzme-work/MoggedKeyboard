@@ -24,7 +24,7 @@ if [ -z "$VER" ]; then
 fi
 VER="${VER:-dev}"
 
-OUT_DIR="/storage/emulated/0/Download/MoggedKeyboard"
+OUT_DIR="/storage/emulated/0/Download"
 if [ ! -d "$OUT_DIR" ]; then
   OUT_DIR="$(pwd)"
 fi
