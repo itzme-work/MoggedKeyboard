@@ -25,6 +25,23 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Проверка версий
+        run: |
+          set -e
+          GRADLE=$(sed -n 's/.*appVersionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -1)
+          CHANGELOG=$(sed -n 's/.*const val VERSION = "\([^"]*\)".*/\1/p' \
+            app/src/main/java/com/mogged/keyboard/Changelog.kt | head -1)
+          RELEASE=$(sed -n 's/.*"versionName": *"\([^"]*\)".*/\1/p' release.json | head -1)
+
+          echo "Gradle:    $GRADLE"
+          echo "Changelog: $CHANGELOG"
+          echo "release:   $RELEASE"
+
+          if [ -z "$GRADLE" ] || [ "$GRADLE" != "$CHANGELOG" ] || [ "$GRADLE" != "$RELEASE" ]; then
+            echo "::error::Версии не совпадают: '$GRADLE' / '$CHANGELOG' / '$RELEASE'"
+            exit 1
+          fi
+
       - name: Ключ подписи из секрета
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
