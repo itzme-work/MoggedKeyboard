@@ -1,21 +1,24 @@
 package com.mogged.keyboard
 
 import android.content.Intent
+import android.graphics.Typeface
 import android.os.Bundle
 import android.provider.Settings
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.StyleSpan
-import android.graphics.Typeface
 import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.ProgressBar
+import android.widget.RadioGroup
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatDelegate
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.slider.Slider
 import java.io.File
+import kotlin.math.roundToInt
 
 class MainActivity : AppCompatActivity() {
 
@@ -32,71 +35,62 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
         prefs = Prefs(this)
+        applyAppTheme()
+        setContentView(R.layout.activity_main)
 
-        val switchVibrate = findViewById<MaterialSwitch>(R.id.swVibrate)
-        switchVibrate.isChecked = prefs.vibrate
-        switchVibrate.setOnCheckedChangeListener { _, value -> prefs.vibrate = value }
+        bindStatus()
+        bindOnboarding()
+        bindSettings()
+        bindUpdates()
+        refreshOnboarding()
 
-        val switchSound = findViewById<MaterialSwitch>(R.id.swSound)
-        switchSound.isChecked = prefs.sound
-        switchSound.setOnCheckedChangeListener { _, value -> prefs.sound = value }
-
-        val switchAuto = findViewById<MaterialSwitch>(R.id.swAutoShift)
-        switchAuto.isChecked = prefs.autoShift
-        switchAuto.setOnCheckedChangeListener { _, value -> prefs.autoShift = value }
-
-        val switchUpdates = findViewById<MaterialSwitch>(R.id.swUpdates)
-        switchUpdates.isChecked = prefs.checkUpdates
-        switchUpdates.setOnCheckedChangeListener { _, value ->
-            prefs.checkUpdates = value
-            if (value) checkUpdate(quiet = true)
-        }
-
-        val heightValue = findViewById<TextView>(R.id.heightValue)
-        heightValue.text = getString(R.string.height_value, prefs.height)
-
-        val slider = findViewById<Slider>(R.id.sldHeight)
-        // Порядок важен: сначала верхняя граница, потом нижняя.
-        slider.valueTo = 340f
-        slider.valueFrom = 220f
-        slider.stepSize = 10f
-        slider.value = prefs.height.toFloat().coerceIn(220f, 340f)
-        slider.addOnChangeListener { _, value, _ ->
-            prefs.height = value.toInt()
-            heightValue.text = getString(R.string.height_value, value.toInt())
-        }
-
-        findViewById<Button>(R.id.btnEnable).setOnClickListener {
-            startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
-        }
-
-        findViewById<Button>(R.id.btnPick).setOnClickListener {
-            val imm = getSystemService(InputMethodManager::class.java)
-            imm?.showInputMethodPicker()
-        }
-
-        updateStatus = findViewById(R.id.updateStatus)
-        updateButton = findViewById(R.id.btnUpdate)
-        updateProgress = findViewById(R.id.updateProgress)
-        updateNotes = findViewById(R.id.updateNotes)
         changelogText = findViewById(R.id.changelogText)
-
         updateStatus.text = getString(R.string.update_current, BuildConfig.VERSION_NAME)
         updateButton.setOnClickListener { onUpdateClicked() }
+
+        findViewById<TextView>(R.id.aboutVersion).text = getString(
+            R.string.about_version,
+            BuildConfig.VERSION_NAME,
+            BuildConfig.VERSION_CODE
+        )
 
         showChangelog()
     }
 
     override fun onResume() {
         super.onResume()
-        updateStatus()
+        refreshStatus()
+        refreshOnboarding()
         if (prefs.checkUpdates) checkUpdate(quiet = true)
     }
 
-    // ── статус клавиатуры ────────────────────────────────────
-    private fun updateStatus() {
+    /** Тема приложения следует выбору темы клавиатуры. */
+    private fun applyAppTheme() {
+        val mode = when (prefs.theme) {
+            "light" -> AppCompatDelegate.MODE_NIGHT_NO
+            "dark", "amoled" -> AppCompatDelegate.MODE_NIGHT_YES
+            else -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
+        }
+        if (AppCompatDelegate.getDefaultNightMode() != mode) {
+            AppCompatDelegate.setDefaultNightMode(mode)
+        }
+    }
+
+    // ── статус и первый запуск ───────────────────────────────
+    private fun bindStatus() {
+        findViewById<Button>(R.id.btnEnable).setOnClickListener {
+            startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
+        }
+        findViewById<Button>(R.id.btnPick).setOnClickListener { showPicker() }
+    }
+
+    private fun showPicker() {
+        val imm = getSystemService(InputMethodManager::class.java)
+        imm?.showInputMethodPicker()
+    }
+
+    private fun refreshStatus() {
         val imm = getSystemService(InputMethodManager::class.java)
         val enabled = imm?.enabledInputMethodList?.any { it.packageName == packageName } == true
         val selected = Settings.Secure
@@ -109,6 +103,150 @@ class MainActivity : AppCompatActivity() {
             else -> getString(R.string.status_off)
         }
         findViewById<TextView>(R.id.statusText).text = text
+    }
+
+    private fun bindOnboarding() {
+        findViewById<Button>(R.id.btnObEnable).setOnClickListener {
+            startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
+        }
+        findViewById<Button>(R.id.btnObPick).setOnClickListener { showPicker() }
+        findViewById<Button>(R.id.btnObInstall).setOnClickListener {
+            UpdateManager.openInstallPermission(this)
+        }
+        findViewById<Button>(R.id.btnObDone).setOnClickListener {
+            prefs.onboarded = true
+            refreshOnboarding()
+        }
+    }
+
+    private fun refreshOnboarding() {
+        val card = findViewById<View>(R.id.cardOnboarding)
+        card.visibility = if (prefs.onboarded) View.GONE else View.VISIBLE
+
+        val installState = findViewById<TextView>(R.id.obInstallState)
+        installState.text = getString(
+            if (UpdateManager.canInstall(this)) R.string.onboard_install_done
+            else R.string.onboard_install_off
+        )
+    }
+
+    // ── настройки ────────────────────────────────────────────
+    private fun bindSettings() {
+        val switchVibrate = findViewById<MaterialSwitch>(R.id.swVibrate)
+        switchVibrate.isChecked = prefs.vibrate
+        switchVibrate.setOnCheckedChangeListener { _, value -> prefs.vibrate = value }
+
+        val switchSound = findViewById<MaterialSwitch>(R.id.swSound)
+        switchSound.isChecked = prefs.sound
+        switchSound.setOnCheckedChangeListener { _, value -> prefs.sound = value }
+
+        val switchAuto = findViewById<MaterialSwitch>(R.id.swAutoShift)
+        switchAuto.isChecked = prefs.autoShift
+        switchAuto.setOnCheckedChangeListener { _, value -> prefs.autoShift = value }
+
+        val switchNumber = findViewById<MaterialSwitch>(R.id.swNumberRow)
+        switchNumber.isChecked = prefs.numberRow
+        switchNumber.setOnCheckedChangeListener { _, value -> prefs.numberRow = value }
+
+        val switchHints = findViewById<MaterialSwitch>(R.id.swHints)
+        switchHints.isChecked = prefs.hints
+        switchHints.setOnCheckedChangeListener { _, value -> prefs.hints = value }
+
+        val switchPreview = findViewById<MaterialSwitch>(R.id.swPreview)
+        switchPreview.isChecked = prefs.keyPreview
+        switchPreview.setOnCheckedChangeListener { _, value -> prefs.keyPreview = value }
+
+        val switchDouble = findViewById<MaterialSwitch>(R.id.swDoubleSpace)
+        switchDouble.isChecked = prefs.doubleSpace
+        switchDouble.setOnCheckedChangeListener { _, value -> prefs.doubleSpace = value }
+
+        setupSlider(
+            R.id.sldHeight, R.id.heightValue, 220f, 340f, 10f,
+            prefs.height, R.string.height_value
+        ) { prefs.height = it }
+
+        setupSlider(
+            R.id.sldRadius, R.id.radiusValue, 0f, 20f, 1f,
+            prefs.keyRadius, R.string.radius_value
+        ) { prefs.keyRadius = it }
+
+        setupSlider(
+            R.id.sldVibration, R.id.vibrationValue, 1f, 100f, 1f,
+            prefs.vibrateStrength, R.string.vibration_value
+        ) { prefs.vibrateStrength = it }
+
+        setupSlider(
+            R.id.sldVolume, R.id.volumeValue, 0f, 100f, 1f,
+            prefs.volume, R.string.volume_value
+        ) { prefs.volume = it }
+
+        val group = findViewById<RadioGroup>(R.id.themeGroup)
+        group.check(
+            when (prefs.theme) {
+                "light" -> R.id.themeLight
+                "dark" -> R.id.themeDark
+                "amoled" -> R.id.themeAmoled
+                else -> R.id.themeSystem
+            }
+        )
+        group.setOnCheckedChangeListener { _, id ->
+            prefs.theme = when (id) {
+                R.id.themeLight -> "light"
+                R.id.themeDark -> "dark"
+                R.id.themeAmoled -> "amoled"
+                else -> "system"
+            }
+            applyAppTheme()
+        }
+    }
+
+    private fun setupSlider(
+        sliderId: Int,
+        labelId: Int,
+        from: Float,
+        to: Float,
+        step: Float,
+        value: Int,
+        labelRes: Int,
+        save: (Int) -> Unit
+    ) {
+        val label = findViewById<TextView>(labelId)
+        val slider = findViewById<Slider>(sliderId)
+
+        val initial = snap(value, from, to, step)
+        label.text = getString(labelRes, initial.toInt())
+
+        // Порядок важен: сначала границы и шаг, потом значение.
+        slider.valueTo = to
+        slider.valueFrom = from
+        slider.stepSize = step
+        slider.value = initial
+        slider.addOnChangeListener { _, current, _ ->
+            val int = current.toInt()
+            label.text = getString(labelRes, int)
+            save(int)
+        }
+    }
+
+    private fun snap(value: Int, from: Float, to: Float, step: Float): Float {
+        val clamped = value.toFloat().coerceIn(from, to)
+        val steps = ((clamped - from) / step).roundToInt()
+        return (from + steps * step).coerceIn(from, to)
+    }
+
+    // ── обновления ───────────────────────────────────────────
+    private fun bindUpdates() {
+        val switchUpdates = findViewById<MaterialSwitch>(R.id.swUpdates)
+        switchUpdates.isChecked = prefs.checkUpdates
+        switchUpdates.setOnCheckedChangeListener { _, value ->
+            prefs.checkUpdates = value
+            if (value) checkUpdate(quiet = true)
+        }
+
+        updateStatus = findViewById(R.id.updateStatus)
+        updateButton = findViewById(R.id.btnUpdate)
+        updateProgress = findViewById(R.id.updateProgress)
+        updateNotes = findViewById(R.id.updateNotes)
     }
 
     // ── список обновлений ────────────────────────────────────
@@ -157,7 +295,6 @@ class MainActivity : AppCompatActivity() {
         updateNotes.visibility = View.VISIBLE
     }
 
-    // ── обновления ───────────────────────────────────────────
     private fun checkUpdate(quiet: Boolean) {
         if (busy) return
 
@@ -236,7 +373,7 @@ class MainActivity : AppCompatActivity() {
                 update.sha256
             ) { done, total ->
                 if (total > 0) {
-                    val percent = (done * 100L / total).toInt()
+                    val percent = (done.toLong() * 100L / total).toInt()
                     if (percent != lastPercent) {
                         lastPercent = percent
                         runOnUiThread { updateProgress.progress = percent }
@@ -249,6 +386,7 @@ class MainActivity : AppCompatActivity() {
                 updateButton.isEnabled = true
                 updateProgress.visibility = View.GONE
                 updateButton.text = getString(R.string.update_download)
+                if (!UpdateManager.canInstall(this)) refreshOnboarding()
 
                 updateStatus.text = when (result) {
                     is UpdateManager.Download.Ok -> {
