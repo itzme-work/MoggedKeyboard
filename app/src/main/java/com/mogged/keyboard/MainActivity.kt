@@ -3,6 +3,10 @@ package com.mogged.keyboard
 import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.StyleSpan
+import android.graphics.Typeface
 import android.view.View
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
@@ -20,6 +24,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var updateStatus: TextView
     private lateinit var updateButton: Button
     private lateinit var updateProgress: ProgressBar
+    private lateinit var updateNotes: TextView
+    private lateinit var changelogText: TextView
 
     private var pendingUpdate: UpdateManager.Update? = null
     private var busy = false
@@ -74,9 +80,13 @@ class MainActivity : AppCompatActivity() {
         updateStatus = findViewById(R.id.updateStatus)
         updateButton = findViewById(R.id.btnUpdate)
         updateProgress = findViewById(R.id.updateProgress)
+        updateNotes = findViewById(R.id.updateNotes)
+        changelogText = findViewById(R.id.changelogText)
 
         updateStatus.text = getString(R.string.update_current, BuildConfig.VERSION_NAME)
         updateButton.setOnClickListener { onUpdateClicked() }
+
+        showChangelog()
     }
 
     override fun onResume() {
@@ -101,40 +111,93 @@ class MainActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.statusText).text = text
     }
 
+    // ── список обновлений ────────────────────────────────────
+    private fun showChangelog() {
+        val builder = SpannableStringBuilder()
+        Changelog.releases.forEachIndexed { index, release ->
+            if (index > 0) builder.append("\n\n")
+
+            val header = "${release.version} — «${release.name}»"
+            val start = builder.length
+            builder.append(header)
+            builder.setSpan(
+                StyleSpan(Typeface.BOLD),
+                start,
+                builder.length,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+
+            release.items.forEach { item ->
+                builder.append("\n• ").append(item)
+            }
+        }
+        changelogText.text = builder
+    }
+
+    private fun showUpdateNotes(update: UpdateManager.Update) {
+        if (update.changelog.isEmpty()) {
+            updateNotes.visibility = View.GONE
+            return
+        }
+
+        val title = buildString {
+            append(update.versionName)
+            if (update.name.isNotEmpty()) append(" — «").append(update.name).append('»')
+        }
+        val builder = SpannableStringBuilder(title)
+        builder.setSpan(
+            StyleSpan(Typeface.BOLD),
+            0,
+            builder.length,
+            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        )
+        update.changelog.forEach { builder.append("\n• ").append(it) }
+
+        updateNotes.text = builder
+        updateNotes.visibility = View.VISIBLE
+    }
+
     // ── обновления ───────────────────────────────────────────
     private fun checkUpdate(quiet: Boolean) {
         if (busy) return
-        if (quiet) {
-            Thread {
-                val found = UpdateManager.check()
-                if (found != null) runOnUiThread { showUpdate(found) }
-            }.start()
-        } else {
-            updateStatus.text = getString(R.string.update_checking)
-            Thread {
-                val found = UpdateManager.check()
-                runOnUiThread {
-                    when {
-                        found == null -> updateStatus.text = getString(R.string.update_none)
-                        else -> showUpdate(found)
+
+        if (!quiet) updateStatus.text = getString(R.string.update_checking)
+
+        Thread {
+            val result = UpdateManager.check()
+            runOnUiThread {
+                when (result) {
+                    is UpdateManager.Check.Found -> showUpdate(result.update)
+                    is UpdateManager.Check.UpToDate -> {
+                        pendingUpdate = null
+                        updateNotes.visibility = View.GONE
+                        updateStatus.text =
+                            getString(R.string.update_fresh, BuildConfig.VERSION_NAME)
+                        updateButton.text = getString(R.string.update_check)
+                        updateButton.visibility = View.VISIBLE
+                    }
+                    is UpdateManager.Check.Failed -> {
+                        if (!quiet) {
+                            updateStatus.text = when (result.reason) {
+                                UpdateManager.Reason.NETWORK -> getString(R.string.update_none)
+                                UpdateManager.Reason.BAD_DATA -> getString(R.string.update_bad_data)
+                            }
+                        }
                     }
                 }
-            }.start()
-        }
+            }
+        }.start()
     }
 
-    private fun showUpdate(found: UpdateManager.Update) {
-        pendingUpdate = found
-        if (found.versionCode > BuildConfig.VERSION_CODE) {
-            updateStatus.text =
-                getString(R.string.update_available, "1.${found.versionCode}")
-            updateButton.text = getString(R.string.update_download)
-            updateButton.visibility = View.VISIBLE
-        } else {
-            updateStatus.text =
-                getString(R.string.update_fresh, BuildConfig.VERSION_NAME)
-            updateButton.text = getString(R.string.update_check)
-        }
+    private fun showUpdate(update: UpdateManager.Update) {
+        pendingUpdate = update
+        updateStatus.text = getString(
+            R.string.update_available,
+            update.versionName
+        )
+        updateButton.text = getString(R.string.update_download)
+        updateButton.visibility = View.VISIBLE
+        showUpdateNotes(update)
     }
 
     private fun onUpdateClicked() {
@@ -156,20 +219,28 @@ class MainActivity : AppCompatActivity() {
         startDownload(found)
     }
 
-    private fun startDownload(found: UpdateManager.Update) {
+    private fun startDownload(update: UpdateManager.Update) {
         busy = true
         updateProgress.visibility = View.VISIBLE
         updateProgress.progress = 0
         updateButton.isEnabled = false
         updateStatus.text = getString(R.string.update_downloading)
 
-        val target = File(cacheDir, "updates/MoggedKeyboard.apk")
+        val target = File(cacheDir, "updates/" + UpdateManager.APK_NAME)
 
         Thread {
-            val ok = UpdateManager.download(found.apkUrl, target) { done, total ->
+            var lastPercent = -1
+            val result = UpdateManager.download(
+                update.apkUrl,
+                target,
+                update.sha256
+            ) { done, total ->
                 if (total > 0) {
                     val percent = (done * 100L / total).toInt()
-                    runOnUiThread { updateProgress.progress = percent }
+                    if (percent != lastPercent) {
+                        lastPercent = percent
+                        runOnUiThread { updateProgress.progress = percent }
+                    }
                 }
             }
 
@@ -177,14 +248,19 @@ class MainActivity : AppCompatActivity() {
                 busy = false
                 updateButton.isEnabled = true
                 updateProgress.visibility = View.GONE
+                updateButton.text = getString(R.string.update_download)
 
-                if (ok) {
-                    updateStatus.text = getString(R.string.update_ready)
-                    if (!UpdateManager.install(this, target)) {
-                        updateStatus.text = getString(R.string.update_error)
+                updateStatus.text = when (result) {
+                    is UpdateManager.Download.Ok -> {
+                        if (UpdateManager.install(this, target)) {
+                            getString(R.string.update_ready)
+                        } else {
+                            getString(R.string.update_install_failed)
+                        }
                     }
-                } else {
-                    updateStatus.text = getString(R.string.update_error)
+                    is UpdateManager.Download.Network -> getString(R.string.update_error)
+                    is UpdateManager.Download.NoSpace -> getString(R.string.update_no_space)
+                    is UpdateManager.Download.Corrupt -> getString(R.string.update_corrupt)
                 }
             }
         }.start()
