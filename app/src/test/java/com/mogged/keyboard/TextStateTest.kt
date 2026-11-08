@@ -8,10 +8,54 @@ import org.junit.Test
 class TextStateTest {
 
     @Test
-    fun shiftCyclesThroughOnceAndCaps() {
-        assertEquals(ShiftState.ONCE, CapsPolicy.next(ShiftState.OFF))
-        assertEquals(ShiftState.CAPS, CapsPolicy.next(ShiftState.ONCE))
-        assertEquals(ShiftState.OFF, CapsPolicy.next(ShiftState.CAPS))
+    fun tapOnOffGivesOneCapital() {
+        assertEquals(ShiftState.ONCE, CapsPolicy.next(ShiftState.OFF, Long.MAX_VALUE, 300))
+    }
+
+    @Test
+    fun secondTapWithinTimeoutGivesCaps() {
+        assertEquals(ShiftState.CAPS, CapsPolicy.next(ShiftState.ONCE, 120, 300))
+    }
+
+    @Test
+    fun doubleTapBoundaryIsInclusive() {
+        // Ровно на пороге — ещё двойной тап.
+        assertEquals(ShiftState.CAPS, CapsPolicy.next(ShiftState.ONCE, 300, 300))
+        // На миллисекунду позже — уже одиночное нажатие, Shift выключается.
+        assertEquals(ShiftState.OFF, CapsPolicy.next(ShiftState.ONCE, 301, 300))
+    }
+
+    @Test
+    fun singleTapOnOneCapitalTurnsItOff() {
+        // Автоматическая заглавная в начале предложения: тап без второго тапа.
+        assertEquals(ShiftState.OFF, CapsPolicy.next(ShiftState.ONCE, Long.MAX_VALUE, 300))
+        assertEquals(ShiftState.OFF, CapsPolicy.next(ShiftState.ONCE, 5000, 300))
+    }
+
+    @Test
+    fun tapOnCapsTurnsItOff() {
+        assertEquals(ShiftState.OFF, CapsPolicy.next(ShiftState.CAPS, 50, 300))
+    }
+
+    @Test
+    fun capsNeedsTwoSeparateTapsEveryTime() {
+        var state = CapsPolicy.next(ShiftState.OFF, Long.MAX_VALUE, 300)
+        state = CapsPolicy.next(state, 100, 300)
+        assertEquals(ShiftState.CAPS, state)
+
+        state = CapsPolicy.next(state, 100, 300)
+        assertEquals(ShiftState.OFF, state)
+
+        // После выключения снова нужен полный двойной тап.
+        state = CapsPolicy.next(state, 100, 300)
+        assertEquals(ShiftState.ONCE, state)
+    }
+
+    @Test
+    fun oneCapitalResetsAfterLetter() {
+        val after = CapsPolicy.afterInput(ShiftState.ONCE, "a", false, true, true, false)
+        assertEquals(ShiftState.OFF, after)
+        assertEquals("А", CapsPolicy.apply("а", ShiftState.ONCE))
     }
 
     @Test
