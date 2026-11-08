@@ -2,6 +2,7 @@ package com.mogged.keyboard
 
 import android.content.Intent
 import android.graphics.Typeface
+import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
 import android.text.SpannableStringBuilder
@@ -13,6 +14,8 @@ import android.widget.Button
 import android.widget.ProgressBar
 import android.widget.RadioGroup
 import android.widget.TextView
+import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
 import com.google.android.material.materialswitch.MaterialSwitch
@@ -33,6 +36,20 @@ class MainActivity : AppCompatActivity() {
     private var pendingUpdate: UpdateManager.Update? = null
     private var busy = false
 
+    /** Экспорт: системный диалог «создать документ». */
+    private val exportLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri: Uri? ->
+        if (uri != null) saveBackup(uri)
+    }
+
+    /** Импорт: системный диалог «открыть документ». */
+    private val importLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) loadBackup(uri)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
@@ -42,6 +59,7 @@ class MainActivity : AppCompatActivity() {
         bindStatus()
         bindOnboarding()
         bindSettings()
+        bindBackup()
         bindUpdates()
         refreshOnboarding()
 
@@ -132,33 +150,14 @@ class MainActivity : AppCompatActivity() {
 
     // ── настройки ────────────────────────────────────────────
     private fun bindSettings() {
-        val switchVibrate = findViewById<MaterialSwitch>(R.id.swVibrate)
-        switchVibrate.isChecked = prefs.vibrate
-        switchVibrate.setOnCheckedChangeListener { _, value -> prefs.vibrate = value }
-
-        val switchSound = findViewById<MaterialSwitch>(R.id.swSound)
-        switchSound.isChecked = prefs.sound
-        switchSound.setOnCheckedChangeListener { _, value -> prefs.sound = value }
-
-        val switchAuto = findViewById<MaterialSwitch>(R.id.swAutoShift)
-        switchAuto.isChecked = prefs.autoShift
-        switchAuto.setOnCheckedChangeListener { _, value -> prefs.autoShift = value }
-
-        val switchNumber = findViewById<MaterialSwitch>(R.id.swNumberRow)
-        switchNumber.isChecked = prefs.numberRow
-        switchNumber.setOnCheckedChangeListener { _, value -> prefs.numberRow = value }
-
-        val switchHints = findViewById<MaterialSwitch>(R.id.swHints)
-        switchHints.isChecked = prefs.hints
-        switchHints.setOnCheckedChangeListener { _, value -> prefs.hints = value }
-
-        val switchPreview = findViewById<MaterialSwitch>(R.id.swPreview)
-        switchPreview.isChecked = prefs.keyPreview
-        switchPreview.setOnCheckedChangeListener { _, value -> prefs.keyPreview = value }
-
-        val switchDouble = findViewById<MaterialSwitch>(R.id.swDoubleSpace)
-        switchDouble.isChecked = prefs.doubleSpace
-        switchDouble.setOnCheckedChangeListener { _, value -> prefs.doubleSpace = value }
+        bindSwitch(R.id.swVibrate, prefs.vibrate) { prefs.vibrate = it }
+        bindSwitch(R.id.swSound, prefs.sound) { prefs.sound = it }
+        bindSwitch(R.id.swAutoShift, prefs.autoShift) { prefs.autoShift = it }
+        bindSwitch(R.id.swNumberRow, prefs.numberRow) { prefs.numberRow = it }
+        bindSwitch(R.id.swHints, prefs.hints) { prefs.hints = it }
+        bindSwitch(R.id.swPreview, prefs.keyPreview) { prefs.keyPreview = it }
+        bindSwitch(R.id.swDoubleSpace, prefs.doubleSpace) { prefs.doubleSpace = it }
+        bindSwitch(R.id.swHapticStrong, prefs.hapticStrong) { prefs.hapticStrong = it }
 
         setupSlider(
             R.id.sldHeight, R.id.heightValue, 220f, 340f, 10f,
@@ -171,6 +170,11 @@ class MainActivity : AppCompatActivity() {
         ) { prefs.keyRadius = it }
 
         setupSlider(
+            R.id.sldWidth, R.id.widthValue, 50f, 100f, 5f,
+            prefs.width, R.string.width_value
+        ) { prefs.width = it }
+
+        setupSlider(
             R.id.sldVibration, R.id.vibrationValue, 1f, 100f, 1f,
             prefs.vibrateStrength, R.string.vibration_value
         ) { prefs.vibrateStrength = it }
@@ -180,6 +184,12 @@ class MainActivity : AppCompatActivity() {
             prefs.volume, R.string.volume_value
         ) { prefs.volume = it }
 
+        bindTheme()
+        bindOneHand()
+        bindHaptics()
+    }
+
+    private fun bindTheme() {
         val group = findViewById<RadioGroup>(R.id.themeGroup)
         group.check(
             when (prefs.theme) {
@@ -198,6 +208,48 @@ class MainActivity : AppCompatActivity() {
             }
             applyAppTheme()
         }
+    }
+
+    private fun bindOneHand() {
+        val group = findViewById<RadioGroup>(R.id.oneHandGroup)
+        group.check(
+            when (prefs.oneHand) {
+                "left" -> R.id.oneHandLeft
+                "right" -> R.id.oneHandRight
+                else -> R.id.oneHandOff
+            }
+        )
+        group.setOnCheckedChangeListener { _, id ->
+            prefs.oneHand = when (id) {
+                R.id.oneHandLeft -> "left"
+                R.id.oneHandRight -> "right"
+                else -> "off"
+            }
+        }
+    }
+
+    private fun bindHaptics() {
+        val group = findViewById<RadioGroup>(R.id.hapticGroup)
+        group.check(
+            when (Haptics.parse(prefs.hapticStyle)) {
+                HapticStyle.TICK -> R.id.hapticTick
+                HapticStyle.STRONG -> R.id.hapticStrong
+                HapticStyle.CLICK -> R.id.hapticClick
+            }
+        )
+        group.setOnCheckedChangeListener { _, id ->
+            prefs.hapticStyle = when (id) {
+                R.id.hapticTick -> Haptics.key(HapticStyle.TICK)
+                R.id.hapticStrong -> Haptics.key(HapticStyle.STRONG)
+                else -> Haptics.key(HapticStyle.CLICK)
+            }
+        }
+    }
+
+    private fun bindSwitch(id: Int, value: Boolean, save: (Boolean) -> Unit) {
+        val view = findViewById<MaterialSwitch>(id)
+        view.isChecked = value
+        view.setOnCheckedChangeListener { _, checked -> save(checked) }
     }
 
     private fun setupSlider(
@@ -232,6 +284,60 @@ class MainActivity : AppCompatActivity() {
         val clamped = value.toFloat().coerceIn(from, to)
         val steps = ((clamped - from) / step).roundToInt()
         return (from + steps * step).coerceIn(from, to)
+    }
+
+    // ── резервная копия ──────────────────────────────────────
+    private fun bindBackup() {
+        findViewById<Button>(R.id.btnExport).setOnClickListener {
+            exportLauncher.launch("mogged-settings.json")
+        }
+        findViewById<Button>(R.id.btnImport).setOnClickListener {
+            importLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
+        }
+    }
+
+    private fun saveBackup(uri: Uri) {
+        val text = Backup.toJson(Backup.fromPrefs(prefs))
+        val ok = try {
+            val out = contentResolver.openOutputStream(uri)
+            if (out == null) {
+                false
+            } else {
+                out.use { it.write(text.toByteArray(Charsets.UTF_8)) }
+                true
+            }
+        } catch (t: Throwable) {
+            false
+        }
+        toast(if (ok) R.string.backup_saved else R.string.backup_save_failed)
+    }
+
+    private fun loadBackup(uri: Uri) {
+        val text = try {
+            contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+        } catch (t: Throwable) {
+            null
+        }
+        if (text == null) {
+            toast(R.string.backup_read_failed)
+            return
+        }
+
+        val settings = Backup.parse(text)
+        if (settings == null) {
+            // Чужой или битый файл: настройки не трогаем.
+            toast(R.string.backup_bad)
+            return
+        }
+
+        Backup.applyTo(prefs, settings)
+        applyAppTheme()
+        toast(R.string.backup_loaded)
+        recreate()
+    }
+
+    private fun toast(res: Int) {
+        Toast.makeText(this, res, Toast.LENGTH_SHORT).show()
     }
 
     // ── обновления ───────────────────────────────────────────
