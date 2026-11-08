@@ -22,6 +22,8 @@ import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.google.android.material.color.DynamicColors
 import kotlin.math.roundToInt
 
@@ -52,6 +54,10 @@ class MoggedKeyboardService : InputMethodService() {
     private var cPrimaryContainer = 0xFF4F378B.toInt()
     private var cOnPrimaryContainer = 0xFFEADDFF.toInt()
     private var cRipple = 0x33FFFFFF
+
+    // размеры шрифта, зависят от экрана
+    private var letterSize = 20f
+    private var specialSize = 15f
 
     override fun onCreate() {
         super.onCreate()
@@ -92,6 +98,7 @@ class MoggedKeyboardService : InputMethodService() {
 
         val r = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
             setPadding(dp(4), dp(6), dp(4), dp(8))
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -99,19 +106,32 @@ class MoggedKeyboardService : InputMethodService() {
             )
         }
 
+        // На планшетах и складных не растягиваем клавиши на всю ширину экрана.
         val box = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
         }
         r.addView(
             box,
             LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+                contentWidth(), ViewGroup.LayoutParams.MATCH_PARENT
             )
         )
+
+        // Учитываем навигационную панель / жесты / вырез экрана.
+        ViewCompat.setOnApplyWindowInsetsListener(r) { view, insets ->
+            val nav = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
+            val gestures = insets.getInsets(WindowInsetsCompat.Type.mandatorySystemGestures())
+            val cutout = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
+            val bottom = maxOf(nav.bottom, gestures.bottom, cutout.bottom)
+                .coerceAtMost(dp(48))
+            view.setPadding(dp(4), dp(6), dp(4), dp(8) + bottom)
+            insets
+        }
 
         root = r
         rowsBox = box
         render()
+        r.post { ViewCompat.requestApplyInsets(r) }
         return r
     }
 
@@ -158,6 +178,7 @@ class MoggedKeyboardService : InputMethodService() {
 
     private fun render() {
         val box = rowsBox ?: return
+        computeSizes()
         root?.setBackgroundColor(cSurface)
         box.removeAllViews()
 
@@ -294,13 +315,13 @@ class MoggedKeyboardService : InputMethodService() {
     }
 
     private fun sizeFor(def: Key): Float = when (def) {
-        is Key.Char -> if (def.text.length > 1) 15f else 20f
-        Key.Backspace -> 18f
-        Key.Enter -> 18f
-        Key.Shift -> 16f
-        Key.LangKey -> 16f
-        Key.ToSymbols, Key.ToLetters -> 13f
-        Key.Space -> 16f
+        is Key.Char -> if (def.text.length > 1) specialSize else letterSize
+        Key.Backspace -> letterSize * 0.9f
+        Key.Enter -> letterSize * 0.9f
+        Key.Shift -> letterSize * 0.82f
+        Key.LangKey -> letterSize * 0.82f
+        Key.ToSymbols, Key.ToLetters -> specialSize * 0.85f
+        Key.Space -> letterSize
     }
 
     private fun backgroundFor(def: Key): Int = when (def) {
@@ -447,6 +468,24 @@ class MoggedKeyboardService : InputMethodService() {
 
     private fun dp(value: Int): Int =
         (value * resources.displayMetrics.density).roundToInt()
+
+    /** Ширина клавиатуры: на телефоне — весь экран, на планшете — не шире 720dp. */
+    private fun contentWidth(): Int {
+        val metrics = resources.displayMetrics
+        val available = metrics.widthPixels / metrics.density - 8f
+        return dp(available.coerceIn(240f, 720f).roundToInt())
+    }
+
+    /** Подбираем кегль под реальную ширину клавиши и высоту ряда. */
+    private fun computeSizes() {
+        val density = resources.displayMetrics.density
+        val widthDp = contentWidth() / density
+        val heightDp = keyboardHeight() / density
+        val keyWidth = widthDp / 12f - 4f
+        val rowHeight = heightDp / 4f
+        letterSize = minOf(keyWidth * 0.72f, rowHeight * 0.34f).coerceIn(13f, 26f)
+        specialSize = (letterSize * 0.8f).coerceIn(11f, 20f)
+    }
 
     /** Высота из настроек, но не больше половины экрана (важно в альбомной ориентации). */
     private fun keyboardHeight(): Int {
