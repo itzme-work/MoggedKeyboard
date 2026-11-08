@@ -3,14 +3,18 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-// Номер запуска GitHub Actions как versionCode: каждая сборка новее предыдущей.
+// versionName задаётся здесь, versionCode — номер запуска CI, чтобы каждая
+// следующая сборка была «новее» предыдущей и обновление ставилось поверх.
+val appVersionName = "0.2.0"
 val runNumber = (System.getenv("GITHUB_RUN_NUMBER") ?: "").toIntOrNull() ?: 0
 val buildVersionCode = if (runNumber > 0) runNumber else 1
 
-// Постоянный ключ подписи: если он есть, обновления ставятся поверх без удаления.
-val keystoreFile = rootProject.file("keystore/mogged.jks")
+// Ключ подписи НЕ лежит в репозитории: CI раскладывает его из секрета
+// KEYSTORE_BASE64 во временный файл и передаёт путь в KEYSTORE_PATH.
+val keystorePath = System.getenv("KEYSTORE_PATH").orEmpty()
+val keystoreFile = if (keystorePath.isNotEmpty()) rootProject.file(keystorePath) else null
 val ksPassword = System.getenv("KEYSTORE_PASSWORD").orEmpty()
-val canSign = keystoreFile.exists() && ksPassword.isNotEmpty()
+val canSign = keystoreFile != null && keystoreFile.isFile && ksPassword.isNotEmpty()
 
 android {
     namespace = "com.mogged.keyboard"
@@ -21,13 +25,14 @@ android {
         minSdk = 26
         targetSdk = 34
         versionCode = buildVersionCode
-        versionName = "1.$buildVersionCode"
+        versionName = appVersionName
     }
 
     signingConfigs {
         if (canSign) {
             create("app") {
                 storeFile = keystoreFile
+                storeType = "PKCS12"
                 storePassword = ksPassword
                 keyAlias = System.getenv("KEY_ALIAS") ?: "mogged"
                 keyPassword = System.getenv("KEY_PASSWORD") ?: ksPassword
@@ -47,6 +52,12 @@ android {
             isMinifyEnabled = false
             if (canSign) signingConfig = signingConfigs.getByName("app")
         }
+    }
+
+    lint {
+        abortOnError = true
+        // Сборка не должна падать из-за «устаревших» версий библиотек.
+        disable += setOf("GradleDependency", "OldTargetApi", "NewerVersionAvailable")
     }
 
     compileOptions {
