@@ -56,9 +56,7 @@ object CapsPolicy {
         val newSentence = raw == " " && sentenceStartBefore && capSentences
         val newWord = raw == " " && capWords
         val newLine = raw.endsWith("\n") && (capSentences || capWords)
-        // Точка, вопрос и восклицание включают заглавную сразу, даже без пробела.
-        val afterPunctuation = capSentences && raw.length == 1 && raw[0] in ".!?"
-        if (newSentence || newWord || newLine || afterPunctuation) next = ShiftState.ONCE
+        if (newSentence || newWord || newLine) next = ShiftState.ONCE
         return next
     }
 }
