@@ -69,19 +69,26 @@ object UpdateManager {
 
         var versionUrl = ""
         var apkUrl = ""
+        var fallbackApk = ""
         try {
             val assets = JSONObject(release).optJSONArray("assets")
                 ?: return Check.Failed(Reason.BAD_DATA)
             for (i in 0 until assets.length()) {
                 val item = assets.getJSONObject(i)
-                when (item.optString("name")) {
-                    VERSION_NAME -> versionUrl = item.optString("browser_download_url")
-                    APK_NAME -> apkUrl = item.optString("browser_download_url")
+                val name = item.optString("name")
+                val url = item.optString("browser_download_url")
+                when {
+                    name == VERSION_NAME -> versionUrl = url
+                    name == APK_NAME -> apkUrl = url
+                    // github иногда сохраняет исходное имя app-release.apk
+                    name.endsWith(".apk", ignoreCase = true) && fallbackApk.isEmpty() ->
+                        fallbackApk = url
                 }
             }
         } catch (t: Throwable) {
             return Check.Failed(Reason.BAD_DATA)
         }
+        if (apkUrl.isEmpty()) apkUrl = fallbackApk
 
         if (versionUrl.isEmpty() || apkUrl.isEmpty()) return Check.Failed(Reason.BAD_DATA)
         if (!isAllowed(apkUrl) || !isAllowed(versionUrl)) return Check.Failed(Reason.BAD_DATA)
