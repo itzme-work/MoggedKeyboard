@@ -29,6 +29,9 @@ object UpdateManager {
     const val APK_NAME = "MoggedKeyboard.apk"
     private const val VERSION_NAME = "version.json"
 
+    /** Сколько редиректов готовы пройти, проверяя каждый хост. */
+    private const val MAX_REDIRECTS = 5
+
     /** Куда разрешено ходить. Всё остальное — отказ. */
     private val ALLOWED_HOSTS = setOf(
         "api.github.com",
@@ -147,12 +150,8 @@ object UpdateManager {
             dest.parentFile?.mkdirs()
             dest.delete()
 
-            val c = URL(url).openConnection() as HttpURLConnection
+            val c = open(url, 60000) ?: return Download.Network
             connection = c
-            c.connectTimeout = 15000
-            c.readTimeout = 60000
-            c.instanceFollowRedirects = true
-            c.setRequestProperty("User-Agent", UA)
 
             if (c.responseCode != 200) return Download.Network
 
@@ -260,13 +259,8 @@ object UpdateManager {
 
         var connection: HttpURLConnection? = null
         return try {
-            val c = URL(url).openConnection() as HttpURLConnection
+            val c = open(url, 20000, "application/vnd.github+json") ?: return null
             connection = c
-            c.connectTimeout = 15000
-            c.readTimeout = 20000
-            c.instanceFollowRedirects = true
-            c.setRequestProperty("User-Agent", UA)
-            c.setRequestProperty("Accept", "application/vnd.github+json")
 
             if (c.responseCode != 200) {
                 null
@@ -278,5 +272,39 @@ object UpdateManager {
         } finally {
             connection?.disconnect()
         }
+    }
+
+    /**
+     * Открывает соединение вручную, проверяя хост на каждом редиректе:
+     * автоматические переходы могли бы увести на чужой сервер.
+     */
+    private fun open(url: String, readTimeout: Int, accept: String? = null): HttpURLConnection? {
+        var current = url
+        var hops = 0
+
+        while (hops <= MAX_REDIRECTS) {
+            // Проверяем каждый адрес, включая полученный в Location.
+            if (!isAllowed(current)) return null
+
+            val c = URL(current).openConnection() as HttpURLConnection
+            c.connectTimeout = 15000
+            c.readTimeout = readTimeout
+            c.instanceFollowRedirects = false
+            c.setRequestProperty("User-Agent", UA)
+            if (accept != null) c.setRequestProperty("Accept", accept)
+
+            val code = c.responseCode
+            if (code in 300..399) {
+                val location = c.getHeaderField("Location")
+                c.disconnect()
+                if (location.isNullOrEmpty()) return null
+                // Относительный Location разрешаем от текущего адреса.
+                current = URL(URL(current), location).toString()
+                hops++
+                continue
+            }
+            return c
+        }
+        return null
     }
 }
