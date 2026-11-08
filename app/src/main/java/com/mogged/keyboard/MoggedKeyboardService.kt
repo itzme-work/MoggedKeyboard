@@ -2,37 +2,44 @@ package com.mogged.keyboard
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.SharedPreferences
 import android.content.res.ColorStateList
 import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
 import android.inputmethodservice.InputMethodService
-import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
+import android.os.VibrationEffect
+import android.os.Vibrator
 import android.text.InputType
 import android.view.ContextThemeWrapper
 import android.view.Gravity
-import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
+import android.widget.FrameLayout
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
+import android.widget.PopupWindow
 import android.widget.TextView
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.google.android.material.color.DynamicColors
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 class MoggedKeyboardService : InputMethodService() {
 
     private lateinit var prefs: Prefs
 
-    /** Контекст с применённой динамической палитрой Material You. */
+    /** Контекст с применённой палитрой Material You и выбранной темой. */
     private var ctx: Context = this
 
     private var root: LinearLayout? = null
@@ -42,7 +49,7 @@ class MoggedKeyboardService : InputMethodService() {
     private var page = Page.LETTERS
     private var lang = Lang.RU
     private var shift = ShiftState.OFF
-    private var lastChar = ' '
+    private var lastChar = '\u0000'
 
     // поведение поля ввода
     private var capSentences = true
@@ -56,6 +63,28 @@ class MoggedKeyboardService : InputMethodService() {
 
     /** После поворота или смены темы не сбрасываем shift, caps и страницу. */
     private var keepStateOnce = false
+
+    // текущие настройки, чтобы не читать SharedPreferences на каждое нажатие
+    private var selTheme = "system"
+    private var keyRadiusDp = 11
+    private var showHints = true
+    private var previewOn = true
+    private var numberRow = false
+    private var doubleSpace = true
+    private var autoShiftOn = true
+    private var vibrateOn = true
+    private var soundOn = false
+    private var vibrateStrength = 40
+    private var soundVolume = 35
+
+    /** Тема, с которой построен текущий input view. */
+    private var builtTheme: String? = null
+
+    private var clickSound: ClickSound? = null
+    private var vibrator: Vibrator? = null
+
+    private var previewPopup: PopupWindow? = null
+    private var altPopup: PopupWindow? = null
 
     private val handler = Handler(Looper.getMainLooper())
     private var repeater: Runnable? = null
@@ -77,6 +106,9 @@ class MoggedKeyboardService : InputMethodService() {
     override fun onCreate() {
         super.onCreate()
         prefs = Prefs(this)
+        loadPrefs()
+        clickSound = ClickSound(this)
+        vibrator = obtainVibrator()
         prefs.store.registerOnSharedPreferenceChangeListener(prefListener)
     }
 
@@ -84,32 +116,58 @@ class MoggedKeyboardService : InputMethodService() {
         stopRepeat()
         handler.removeCallbacksAndMessages(null)
         prefs.store.unregisterOnSharedPreferenceChangeListener(prefListener)
+        dismissAlternatives()
+        hidePreview()
+        clickSound?.release()
+        clickSound = null
         super.onDestroy()
     }
 
     private val prefListener =
-        android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            if (key == "height") applyHeight()
+        SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            // Проверка обновлений и пройденный онбординг клавиатуру не меняют.
+            if (key != null && key != "check_updates" && key != "onboarded") {
+                handler.post { onPrefsChanged() }
+            }
         }
 
-    private fun applyHeight() {
-        val r = root ?: return
-        val lp = r.layoutParams ?: return
-        lp.height = keyboardHeight()
-        r.layoutParams = lp
-        r.requestLayout()
+    private fun onPrefsChanged() {
+        if (!isInputViewShown) {
+            // В следующий раз клавиатура соберётся заново.
+            builtTheme = null
+            loadPrefs()
+            return
+        }
+        loadPrefs()
+        setInputView(buildInputView())
+    }
+
+    private fun loadPrefs() {
+        selTheme = prefs.theme
+        keyRadiusDp = prefs.keyRadius
+        showHints = prefs.hints
+        previewOn = prefs.keyPreview
+        numberRow = prefs.numberRow
+        doubleSpace = prefs.doubleSpace
+        autoShiftOn = prefs.autoShift
+        vibrateOn = prefs.vibrate
+        soundOn = prefs.sound
+        vibrateStrength = prefs.vibrateStrength
+        soundVolume = prefs.volume
     }
 
     // ── создание разметки клавиатуры ─────────────────────────
     override fun onCreateInputView(): View {
+        loadPrefs()
+        return buildInputView()
+    }
+
+    private fun buildInputView(): View {
+        builtTheme = selTheme
+
         // Тема из манифеста у IME не применяется, поэтому оборачиваем контекст сами:
         // так работают и Material-атрибуты, и динамические цвета Material You.
-        val base = ContextThemeWrapper(this, R.style.Theme_Mogged_Keyboard)
-        ctx = try {
-            DynamicColors.wrapContextIfAvailable(base)
-        } catch (t: Throwable) {
-            base
-        }
+        ctx = themedContext()
         loadColors()
 
         val r = LinearLayout(ctx).apply {
@@ -161,6 +219,27 @@ class MoggedKeyboardService : InputMethodService() {
         return r
     }
 
+    /**
+     * Контекст под выбранную тему: системная, светлая, тёмная, AMOLED.
+     * uiMode подменяем до DynamicColors, чтобы палитра была нужной яркости.
+     */
+    private fun themedContext(): Context {
+        val config = Configuration(resources.configuration)
+        val withoutNight = config.uiMode and Configuration.UI_MODE_NIGHT_MASK.inv()
+        when (selTheme) {
+            "light" -> config.uiMode = withoutNight or Configuration.UI_MODE_NIGHT_NO
+            "dark", "amoled" -> config.uiMode = withoutNight or Configuration.UI_MODE_NIGHT_YES
+        }
+
+        val base = createConfigurationContext(config)
+        val themed = ContextThemeWrapper(base, R.style.Theme_Mogged_Keyboard)
+        return try {
+            DynamicColors.wrapContextIfAvailable(themed)
+        } catch (t: Throwable) {
+            themed
+        }
+    }
+
     @Suppress("DEPRECATION")
     private fun loadColors() {
         cSurface = attr(com.google.android.material.R.attr.colorSurface, cSurface)
@@ -175,6 +254,18 @@ class MoggedKeyboardService : InputMethodService() {
         // Клавиши — тот же фон, чуть светлее/темнее (эффект «поднятой» поверхности).
         cKey = blend(cSurface, cOnKey, 0.10f)
         cRipple = withAlpha(cOnKey, 0.22f)
+
+        // AMOLED: фон действительно чёрный, клавиши — почти чёрные.
+        if (selTheme == "amoled") {
+            cSurface = Color.BLACK
+            cOnKey = 0xFFE6E1E5.toInt()
+            cKey = 0xFF131217.toInt()
+            cPrimary = 0xFFD0BCFF.toInt()
+            cOnPrimary = 0xFF381E72.toInt()
+            cPrimaryContainer = 0xFF332D41.toInt()
+            cOnPrimaryContainer = 0xFFEADDFF.toInt()
+            cRipple = 0x33FFFFFF
+        }
     }
 
     private fun attr(id: Int, fallback: Int): Int {
@@ -204,11 +295,15 @@ class MoggedKeyboardService : InputMethodService() {
 
     private fun render() {
         val box = rowsBox ?: return
-        computeSizes()
         root?.setBackgroundColor(cSurface)
         box.removeAllViews()
 
-        Layouts.page(page, lang, extraLeft, extraRight).forEach { keys ->
+        val layout = Layouts.page(
+            page, lang, extraLeft, extraRight,
+            numberRow && page == Page.LETTERS
+        )
+        computeSizes(layout.size)
+        layout.forEach { keys ->
             val row = LinearLayout(ctx).apply {
                 orientation = LinearLayout.HORIZONTAL
                 layoutParams = LinearLayout.LayoutParams(
@@ -222,16 +317,11 @@ class MoggedKeyboardService : InputMethodService() {
 
     @SuppressLint("ClickableViewAccessibility")
     private fun makeKey(def: Key): View {
-        val tv = TextView(ctx).apply {
-            gravity = Gravity.CENTER
-            includeFontPadding = false
+        val frame = FrameLayout(ctx).apply {
             isClickable = true
             isFocusable = false
-            text = label(def)
             contentDescription = describe(def)
-            textSize = sizeFor(def)
-            setTextColor(colorFor(def))
-            typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+            minimumHeight = dp(48)
             background = keyBackground(backgroundFor(def))
             layoutParams = LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.MATCH_PARENT, weightFor(def)
@@ -241,38 +331,86 @@ class MoggedKeyboardService : InputMethodService() {
             }
         }
 
+        val main = TextView(ctx).apply {
+            gravity = Gravity.CENTER
+            includeFontPadding = false
+            text = label(def)
+            textSize = sizeFor(def)
+            setTextColor(colorFor(def))
+            typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+            isClickable = false
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        frame.addView(
+            main,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        )
+
+        val hintText = if (def is Key.Char && showHints) def.hint else null
+        if (hintText != null) {
+            val hint = TextView(ctx).apply {
+                text = hintText
+                textSize = (specialSize * 0.66f).coerceAtLeast(8f)
+                setTextColor(withAlpha(colorFor(def), 0.65f))
+                gravity = Gravity.TOP or Gravity.END
+                includeFontPadding = false
+                setPadding(0, dp(4), dp(5), 0)
+                isClickable = false
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }
+            frame.addView(
+                hint,
+                FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    Gravity.TOP or Gravity.END
+                )
+            )
+        }
+
         when (def) {
             is Key.Char -> {
-                tv.setOnClickListener {
-                    tap(tv)
+                frame.setOnClickListener {
+                    tap()
                     type(def.text)
                 }
-                val extra = def.long
-                if (extra != null) {
-                    tv.setOnLongClickListener {
-                        tap(tv)
-                        type(extra)
+                frame.setOnTouchListener { view, event ->
+                    when (event.actionMasked) {
+                        MotionEvent.ACTION_DOWN ->
+                            if (previewOn) showPreview(view, def.text)
+                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
+                            hidePreview()
+                    }
+                    false
+                }
+                if (def.alternatives.isNotEmpty()) {
+                    frame.setOnLongClickListener {
+                        tap()
+                        showAlternatives(frame, def)
                         true
                     }
                 }
             }
 
-            Key.Shift -> tv.setOnClickListener {
-                tap(tv)
+            Key.Shift -> frame.setOnClickListener {
+                tap()
                 cycleShift()
             }
 
             Key.Backspace -> {
-                tv.setOnClickListener {
-                    tap(tv)
+                frame.setOnClickListener {
+                    tap()
                     backspace()
                 }
-                tv.setOnLongClickListener {
-                    tap(tv)
+                frame.setOnLongClickListener {
+                    tap()
                     startRepeat { backspace() }
                     true
                 }
-                tv.setOnTouchListener { _, event ->
+                frame.setOnTouchListener { _, event ->
                     if (event.action == MotionEvent.ACTION_UP ||
                         event.action == MotionEvent.ACTION_CANCEL
                     ) {
@@ -282,39 +420,92 @@ class MoggedKeyboardService : InputMethodService() {
                 }
             }
 
-            Key.Enter -> tv.setOnClickListener {
-                tap(tv)
+            Key.Enter -> frame.setOnClickListener {
+                tap()
                 enterKey()
             }
 
-            Key.Space -> tv.setOnClickListener {
-                tap(tv)
-                type(" ")
+            Key.Space -> {
+                var downX = 0f
+                var downY = 0f
+                var switched = false
+
+                frame.setOnTouchListener { _, event ->
+                    when (event.actionMasked) {
+                        MotionEvent.ACTION_DOWN -> {
+                            downX = event.rawX
+                            downY = event.rawY
+                            switched = false
+                        }
+                        MotionEvent.ACTION_MOVE -> {
+                            if (!switched) {
+                                val dx = event.rawX - downX
+                                val dy = event.rawY - downY
+                                if (abs(dx) > dp(32).toFloat() && abs(dy) < dp(48).toFloat()) {
+                                    switched = true
+                                    tap()
+                                    switchLang()
+                                }
+                            }
+                        }
+                    }
+                    false
+                }
+                frame.setOnClickListener {
+                    if (switched) {
+                        switched = false
+                    } else {
+                        tap()
+                        type(" ")
+                    }
+                }
+                frame.setOnLongClickListener {
+                    if (!switched) {
+                        switched = true
+                        tap()
+                        switchLang()
+                    }
+                    true
+                }
             }
 
-            Key.LangKey -> tv.setOnClickListener {
-                tap(tv)
-                switchLang()
+            Key.LangKey -> {
+                frame.setOnClickListener {
+                    tap()
+                    switchLang()
+                }
+                // Долгое нажатие — системный выбор клавиатуры.
+                frame.setOnLongClickListener {
+                    tap()
+                    pickKeyboard()
+                    true
+                }
             }
 
-            Key.ToSymbols -> tv.setOnClickListener {
-                tap(tv)
+            Key.ToSymbols -> frame.setOnClickListener {
+                tap()
                 page = Page.SYMBOLS
                 render()
             }
 
-            Key.ToLetters -> tv.setOnClickListener {
-                tap(tv)
+            Key.ToSymbols2 -> frame.setOnClickListener {
+                tap()
+                page = Page.SYMBOLS2
+                render()
+            }
+
+            Key.ToLetters -> frame.setOnClickListener {
+                tap()
                 page = Page.LETTERS
                 render()
             }
         }
 
-        return tv
+        return frame
     }
 
     private fun keyBackground(color: Int): Drawable {
-        val radius = dp(11).toFloat()
+        val radius = dp(keyRadiusDp).toFloat()
 
         val content = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
@@ -329,6 +520,133 @@ class MoggedKeyboardService : InputMethodService() {
         return RippleDrawable(ColorStateList.valueOf(cRipple), content, mask)
     }
 
+    // ── предпросмотр и альтернативы ──────────────────────────
+
+    private fun showPreview(anchor: View, text: String) {
+        if (!previewOn || text.isEmpty()) return
+        hidePreview()
+
+        val size = dp(48)
+        val bubble = TextView(ctx).apply {
+            this.text = text
+            textSize = (letterSize * 1.35f).coerceAtMost(34f)
+            setTextColor(cOnKey)
+            gravity = Gravity.CENTER
+            includeFontPadding = false
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(keyRadiusDp).toFloat()
+                setColor(cKey)
+                setStroke(dp(1), withAlpha(cPrimary, 0.65f))
+            }
+        }
+        val popup = PopupWindow(bubble, size, size, false).apply {
+            isOutsideTouchable = false
+            isFocusable = false
+            setTouchable(false)
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        }
+        try {
+            popup.showAsDropDown(
+                anchor,
+                (anchor.width - size) / 2,
+                -(anchor.height + size + dp(4))
+            )
+        } catch (t: Throwable) {
+            return
+        }
+        previewPopup = popup
+    }
+
+    private fun hidePreview() {
+        try {
+            previewPopup?.dismiss()
+        } catch (t: Throwable) {
+            // окно уже закрыто
+        }
+        previewPopup = null
+    }
+
+    private fun showAlternatives(anchor: View, def: Key.Char) {
+        val options = def.alternatives
+        if (options.isEmpty()) return
+
+        dismissAlternatives()
+        hidePreview()
+
+        val row = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(6), dp(4), dp(6), dp(4))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(16).toFloat()
+                setColor(cKey)
+                setStroke(dp(1), withAlpha(cPrimary, 0.55f))
+            }
+        }
+
+        options.forEach { option ->
+            val item = TextView(ctx).apply {
+                text = option
+                textSize = letterSize
+                setTextColor(cPrimary)
+                gravity = Gravity.CENTER
+                includeFontPadding = false
+                minWidth = dp(44)
+                minHeight = dp(48)
+                setPadding(dp(8), 0, dp(8), 0)
+                contentDescription = option
+                setOnClickListener {
+                    type(option)
+                    dismissAlternatives()
+                }
+            }
+            row.addView(item)
+        }
+
+        val scroll = HorizontalScrollView(ctx).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(row)
+        }
+
+        val maxWidth = (resources.displayMetrics.widthPixels - dp(16)).coerceAtLeast(dp(160))
+        scroll.measure(
+            View.MeasureSpec.makeMeasureSpec(maxWidth, View.MeasureSpec.AT_MOST),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        )
+        val width = scroll.measuredWidth
+        val height = scroll.measuredHeight
+
+        val popup = PopupWindow(
+            scroll, width, height, false
+        ).apply {
+            isOutsideTouchable = true
+            isFocusable = false
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            elevation = dp(8).toFloat()
+        }
+
+        try {
+            popup.showAsDropDown(
+                anchor,
+                (anchor.width - width) / 2,
+                -(anchor.height + height + dp(6))
+            )
+        } catch (t: Throwable) {
+            return
+        }
+        altPopup = popup
+    }
+
+    private fun dismissAlternatives() {
+        try {
+            altPopup?.dismiss()
+        } catch (t: Throwable) {
+            // окно уже закрыто
+        }
+        altPopup = null
+    }
+
     // ── внешний вид клавиш ───────────────────────────────────
     private fun label(def: Key): String = when (def) {
         is Key.Char -> def.text
@@ -338,17 +656,22 @@ class MoggedKeyboardService : InputMethodService() {
         Key.Space -> ""
         Key.LangKey -> "\uD83C\uDF10"
         Key.ToSymbols -> "?123"
+        Key.ToSymbols2 -> "=<"
         Key.ToLetters -> "ABC"
     }
 
     private fun describe(def: Key): String = when (def) {
-        is Key.Char -> def.text
+        is Key.Char -> when (def.text) {
+            " " -> "Пробел"
+            else -> def.text
+        }
         Key.Shift -> if (shift == ShiftState.CAPS) "Капслок включён" else "Заглавные буквы"
         Key.Backspace -> "Удалить"
         Key.Enter -> "Ввод"
-        Key.Space -> "Пробел"
+        Key.Space -> "Пробел, смена языка свайпом"
         Key.LangKey -> "Сменить язык"
         Key.ToSymbols -> "Цифры и символы"
+        Key.ToSymbols2 -> "Дополнительные символы"
         Key.ToLetters -> "Буквы"
     }
 
@@ -358,7 +681,7 @@ class MoggedKeyboardService : InputMethodService() {
         Key.Enter -> letterSize * 0.85f
         Key.Shift -> letterSize * 0.82f
         Key.LangKey -> letterSize * 0.82f
-        Key.ToSymbols, Key.ToLetters -> specialSize * 0.85f
+        Key.ToSymbols, Key.ToSymbols2, Key.ToLetters -> specialSize * 0.85f
         Key.Space -> letterSize
     }
 
@@ -376,7 +699,7 @@ class MoggedKeyboardService : InputMethodService() {
 
     private fun weightFor(def: Key): Float = when (def) {
         Key.Shift, Key.Backspace, Key.Enter -> 1.6f
-        Key.ToSymbols, Key.ToLetters -> 1.6f
+        Key.ToSymbols, Key.ToSymbols2, Key.ToLetters -> 1.6f
         Key.LangKey -> 1.3f
         Key.Space -> 4f
         is Key.Char -> 1f
@@ -387,32 +710,40 @@ class MoggedKeyboardService : InputMethodService() {
         val ic = currentInputConnection ?: return
         if (raw.isEmpty()) return
 
-        val letter = raw.length == 1 && raw[0].isLetter()
-        val text = if (shift != ShiftState.OFF && letter) raw.uppercase() else raw
+        // Двойной пробел — точка и пробел.
+        if (raw == " " && doubleSpace && !isSensitive && isDoubleSpace()) {
+            ic.deleteSurroundingText(1, 0)
+            ic.commitText(". ", 1)
+            lastChar = '.'
+            sentenceStart = true
+            if (canAutoCapitalize()) shift = ShiftState.ONCE
+            render()
+            return
+        }
+
+        val sentenceBefore = sentenceStart
+        val text = CapsPolicy.apply(raw, shift)
         ic.commitText(text, 1)
 
-        var refresh = false
-        if (shift == ShiftState.ONCE) {
-            shift = ShiftState.OFF
-            refresh = true
-        }
-
-        if (letter) sentenceStart = false
-        if (raw.endsWith("\n")) sentenceStart = true
-        if (raw.last() in ".!?") sentenceStart = true
-
-        if (!isSensitive && prefs.autoShift) {
-            val spaceAfterSentence = raw == " " && sentenceStart && capSentences
-            val newWord = raw == " " && capWords
-            val newLine = raw.endsWith("\n") && (capSentences || capWords)
-            if (spaceAfterSentence || newWord || newLine) {
-                shift = ShiftState.ONCE
-                refresh = true
-            }
-        }
-
-        if (refresh) render()
+        val nextShift = CapsPolicy.afterInput(
+            shift, raw, sentenceBefore, autoShiftOn, capSentences, capWords
+        )
+        val shiftChanged = nextShift != shift
+        shift = nextShift
+        sentenceStart = CapsPolicy.sentenceStartAfter(raw, sentenceStart)
         lastChar = raw.last()
+
+        if (shiftChanged) render()
+    }
+
+    private fun isDoubleSpace(): Boolean {
+        if (lastChar != ' ') return false
+        val ic = currentInputConnection ?: return false
+        val before = ic.getTextBeforeCursor(2, 0)?.toString() ?: return false
+        if (before.length < 2 || before[1] != ' ') return false
+        val previous = before[0]
+        if (previous.isWhitespace()) return false
+        return previous !in ".!?"
     }
 
     private fun backspace() {
@@ -433,7 +764,7 @@ class MoggedKeyboardService : InputMethodService() {
             }
         }
         ic.deleteSurroundingText(count, 0)
-        lastChar = ' '
+        lastChar = '\u0000'
     }
 
     private fun enterKey() {
@@ -444,9 +775,9 @@ class MoggedKeyboardService : InputMethodService() {
         val handled = !noAction && sendDefaultEditorAction(true)
         if (!handled) ic.commitText("\n", 1)
 
-        lastChar = ' '
+        lastChar = '\n'
         sentenceStart = true
-        if (!isSensitive && prefs.autoShift && (capSentences || capWords)) {
+        if (autoShiftOn && (capSentences || capWords)) {
             shift = ShiftState.ONCE
         }
         render()
@@ -454,18 +785,20 @@ class MoggedKeyboardService : InputMethodService() {
 
     private fun switchLang() {
         lang = if (lang == Lang.RU) Lang.EN else Lang.RU
-        page = Page.LETTERS
-        shift = ShiftState.OFF
         render()
     }
 
     private fun cycleShift() {
-        shift = when (shift) {
-            ShiftState.OFF -> ShiftState.ONCE
-            ShiftState.ONCE -> ShiftState.CAPS
-            ShiftState.CAPS -> ShiftState.OFF
-        }
+        shift = CapsPolicy.next(shift)
         render()
+    }
+
+    private fun pickKeyboard() {
+        try {
+            getSystemService(InputMethodManager::class.java)?.showInputMethodPicker()
+        } catch (t: Throwable) {
+            // системный выбор недоступен
+        }
     }
 
     // ── удержание Backspace ──────────────────────────────────
@@ -487,18 +820,27 @@ class MoggedKeyboardService : InputMethodService() {
     }
 
     // ── тактильный отклик ────────────────────────────────────
-    private fun tap(view: View) {
-        if (prefs.vibrate) {
-            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+    private fun tap() {
+        vibrate()
+        if (soundOn) clickSound?.play(soundVolume.toFloat() / 100f)
+    }
+
+    private fun vibrate() {
+        if (!vibrateOn) return
+        val v = vibrator ?: return
+        val amplitude = (vibrateStrength.coerceIn(1, 100) * 255 / 100).coerceIn(1, 255)
+        try {
+            v.vibrate(VibrationEffect.createOneShot(18L, amplitude))
+        } catch (t: Throwable) {
+            // вибрация может быть отключена системой
         }
-        if (prefs.sound) {
-            try {
-                val am = getSystemService(AudioManager::class.java)
-                am?.playSoundEffect(AudioManager.FX_KEY_CLICK)
-            } catch (t: Throwable) {
-                // звук недоступен — не страшно
-            }
-        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun obtainVibrator(): Vibrator? = try {
+        getSystemService(Vibrator::class.java)
+    } catch (t: Throwable) {
+        null
     }
 
     // ── параметры поля ввода ─────────────────────────────────
@@ -552,13 +894,16 @@ class MoggedKeyboardService : InputMethodService() {
         // Поворот экрана, split-screen, смена темы: вью пересоздаётся,
         // но состояние ввода (shift, caps, страница) не теряем.
         keepStateOnce = true
+        builtTheme = null
         root?.requestLayout()
     }
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
         super.onStartInputView(info, restarting)
         stopRepeat()
-        loadColors()
+        dismissAlternatives()
+        hidePreview()
+        loadPrefs()
         readEditorInfo(info)
 
         val keep = restarting || keepStateOnce
@@ -568,7 +913,13 @@ class MoggedKeyboardService : InputMethodService() {
             page = if (isNumberField(info)) Page.SYMBOLS else Page.LETTERS
             sentenceStart = true
             shift = if (canAutoCapitalize()) ShiftState.ONCE else ShiftState.OFF
-            lastChar = ' '
+            lastChar = '\u0000'
+        }
+
+        // Настройки или тема поменялись, пока клавиатура была скрыта.
+        if (root != null && builtTheme != selTheme) {
+            setInputView(buildInputView())
+            return
         }
 
         render()
@@ -581,15 +932,19 @@ class MoggedKeyboardService : InputMethodService() {
     }
 
     private fun canAutoCapitalize(): Boolean =
-        !isSensitive && prefs.autoShift && (capSentences || capWords)
+        !isSensitive && autoShiftOn && (capSentences || capWords)
 
     override fun onFinishInputView(finishingInput: Boolean) {
         stopRepeat()
+        dismissAlternatives()
+        hidePreview()
         super.onFinishInputView(finishingInput)
     }
 
     override fun onWindowHidden() {
         stopRepeat()
+        dismissAlternatives()
+        hidePreview()
         super.onWindowHidden()
     }
 
@@ -606,12 +961,12 @@ class MoggedKeyboardService : InputMethodService() {
     }
 
     /** Подбираем кегль под реальную ширину клавиши и высоту ряда. */
-    private fun computeSizes() {
+    private fun computeSizes(rows: Int) {
         val density = resources.displayMetrics.density
         val widthDp = contentWidth() / density
         val heightDp = keyboardHeight() / density
         val keyWidth = widthDp / 12f - 4f
-        val rowHeight = heightDp / 4f
+        val rowHeight = heightDp / rows.coerceAtLeast(1)
         letterSize = minOf(keyWidth * 0.72f, rowHeight * 0.34f).coerceIn(13f, 26f)
         specialSize = (letterSize * 0.8f).coerceIn(11f, 20f)
     }
