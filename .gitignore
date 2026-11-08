@@ -7,3 +7,14 @@ captures/
 .externalNativeBuild
 .cxx
 .DS_Store
+
+# Логи сборки и мусор
+log.zip
+buildlog/
+*.log
+
+# Ключ подписи никогда не должен попадать в репозиторий
+*.jks
+*.keystore
+*.b64
+keystore/
