@@ -18,7 +18,6 @@ import android.view.ContextThemeWrapper
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
-import android.view.SoundEffectConstants
 import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
@@ -495,7 +494,7 @@ class MoggedKeyboardService : InputMethodService() {
         if (prefs.sound) {
             try {
                 val am = getSystemService(AudioManager::class.java)
-                am?.playSoundEffect(SoundEffectConstants.CLICK)
+                am?.playSoundEffect(AudioManager.FX_KEY_CLICK)
             } catch (t: Throwable) {
                 // звук недоступен — не страшно
             }
