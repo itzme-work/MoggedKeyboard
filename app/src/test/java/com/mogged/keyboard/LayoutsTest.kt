@@ -1,6 +1,7 @@
 package com.mogged.keyboard
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -92,5 +93,19 @@ class LayoutsTest {
         val second = layout(Page.SYMBOLS2)
         assertTrue(second.last().contains(Key.ToSymbols))
         assertTrue(second.last().contains(Key.ToLetters))
+    }
+
+    @Test
+    fun languageKeyCanGiveItsPlaceToSpace() {
+        val withKey = layout(Page.LETTERS)
+        assertTrue(withKey.last().contains(Key.LangKey))
+        assertTrue(withKey.last().contains(Key.Space))
+
+        val withoutKey = Layouts.page(
+            Page.LETTERS, Lang.RU, ",", ".",
+            numberRow = false, langKey = false
+        )
+        assertFalse(withoutKey.last().contains(Key.LangKey))
+        assertTrue(withoutKey.last().contains(Key.Space))
     }
 }
