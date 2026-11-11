@@ -17,22 +17,6 @@
         android:textAppearance="?attr/textAppearanceBodyMedium"
         android:textColor="?attr/colorOnSurfaceVariant" />
 
-    <!-- Проверка клавиатуры прямо в приложении -->
-    <com.google.android.material.textfield.TextInputLayout
-        style="?attr/textInputOutlinedStyle"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:hint="@string/test_field_hint">
-
-        <com.google.android.material.textfield.TextInputEditText
-            android:id="@+id/testField"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:inputType="textMultiLine|textCapSentences"
-            android:minLines="1" />
-    </com.google.android.material.textfield.TextInputLayout>
-
     <!-- Статус клавиатуры -->
     <com.google.android.material.card.MaterialCardView
         android:layout_width="match_parent"
