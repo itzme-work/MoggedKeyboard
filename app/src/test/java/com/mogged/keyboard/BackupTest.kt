@@ -24,7 +24,15 @@ class BackupTest {
         hapticStrong = false,
         sound = true,
         volume = 70,
-        vibrateStrength = 25
+        vibrateStrength = 25,
+        spaceSwipe = "cursor",
+        backspaceWord = false,
+        langKey = false,
+        keyOutline = true,
+        keyFontScale = 115,
+        releaseHaptic = true,
+        customHapticDuration = 40,
+        oneHandPanel = false
     )
 
     @Test
@@ -89,6 +97,53 @@ class BackupTest {
     fun missingFieldsUseDefaults() {
         val settings = Backup.parse("""{"app":"mogged-keyboard","schema":1}""")!!
         assertEquals(Backup.DEFAULT, settings)
+    }
+
+    @Test
+    fun oldBackupWithoutNewKeysGetsDefaults() {
+        // Копия 0.6.0: новых ключей нет, схема та же.
+        val json = """
+            {
+              "app": "mogged-keyboard",
+              "schema": 1,
+              "width": 80,
+              "oneHand": "left",
+              "theme": "dark",
+              "vibrate": false,
+              "hapticStyle": "strong"
+            }
+        """.trimIndent()
+
+        val settings = Backup.parse(json)!!
+        assertEquals(80, settings.width)
+        assertEquals("left", settings.oneHand)
+        assertEquals("dark", settings.theme)
+        assertEquals("lang", settings.spaceSwipe)
+        assertEquals(true, settings.backspaceWord)
+        assertEquals(true, settings.langKey)
+        assertEquals(false, settings.keyOutline)
+        assertEquals(100, settings.keyFontScale)
+        assertEquals(false, settings.releaseHaptic)
+        assertEquals(24, settings.customHapticDuration)
+        assertEquals(true, settings.oneHandPanel)
+    }
+
+    @Test
+    fun newValuesAreClampedAndWrongSwipeFallsBack() {
+        val json = """
+            {
+              "app": "mogged-keyboard",
+              "schema": 1,
+              "spaceSwipe": "teleport",
+              "keyFontScale": 500,
+              "customHapticDuration": 0
+            }
+        """.trimIndent()
+
+        val settings = Backup.parse(json)!!
+        assertEquals("lang", settings.spaceSwipe)
+        assertEquals(120, settings.keyFontScale)
+        assertEquals(5, settings.customHapticDuration)
     }
 
     @Test
