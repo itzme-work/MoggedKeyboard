@@ -77,14 +77,29 @@
     <string name="pref_hints">Подсказки символов на клавишах</string>
     <string name="pref_preview">Предпросмотр клавиши</string>
     <string name="pref_double_space">Двойной пробел — точка и пробел</string>
+    <string name="space_swipe_title">Свайп по пробелу</string>
+    <string name="swipe_lang">Язык</string>
+    <string name="swipe_cursor">Курсор</string>
+    <string name="swipe_off">Выкл</string>
+    <string name="pref_backspace_word">Свайп влево по Backspace удаляет слово</string>
+    <string name="pref_lang_key">Кнопка смены языка</string>
+    <string name="pref_key_outline">Контур клавиш</string>
+    <string name="pref_release_haptic">Отклик при отпускании</string>
+    <string name="pref_onehand_panel">Долгое нажатие на Enter — панель одной руки</string>
+    <string name="font_scale_label">Масштаб шрифта клавиш</string>
+    <string name="font_scale_value_short">%1$d%%</string>
 
     <string name="vibration_value">Сила вибрации: %1$d%%</string>
     <string name="vibration_legacy_hint">Сила действует на Android 8–9. На Android 10+ характер задают системные эффекты.</string>
+    <string name="vibration_custom_hint">Сила учитывается, если устройство поддерживает управление амплитудой; иначе отклик идёт на стандартной силе.</string>
     <string name="volume_value">Громкость звука: %1$d%%</string>
     <string name="haptic_title">Характер вибрации</string>
     <string name="haptic_click">Клик</string>
     <string name="haptic_tick">Тик</string>
     <string name="haptic_strong">Сильный</string>
+    <string name="haptic_custom">Свой</string>
+    <string name="haptic_duration_label">Длительность отклика</string>
+    <string name="haptic_duration_value_short">%1$d мс</string>
     <string name="pref_haptic_strong">Сильнее на Shift, Enter и пробеле</string>
 
     <string name="backup_title">Резервная копия</string>
@@ -122,5 +137,5 @@
 
     <string name="about_title">О приложении</string>
     <string name="about_version">Версия %1$s (versionCode %2$d)</string>
-    <string name="about_text">Клавиатура работает на устройстве: набранный текст никуда не отправляется. Интернет нужен только для проверки и скачивания обновлений с GitHub — это можно выключить в настройках. Цвета берутся из системной палитры Material You (Android 12+), а тему можно выбрать вручную.\n\nДолгое нажатие на букву или знак открывает меню альтернатив: ё, ъ, акценты, валюты. На клавишах видны подсказки, их можно выключить. Кнопка «=&lt;» открывает вторую страницу символов.\n\nСвайп по пробелу или долгое нажатие на нём меняет язык. Долгое нажатие на 🌐 открывает системный выбор клавиатуры. Двойной пробел ставит точку и пробел. Удержание Backspace удаляет текст подряд.</string>
+    <string name="about_text">Клавиатура работает на устройстве: набранный текст никуда не отправляется. Интернет нужен только для проверки и скачивания обновлений с GitHub — это можно выключить в настройках. Цвета берутся из системной палитры Material You (Android 12+), а тему можно выбрать вручную.\n\nДолгое нажатие на букву или знак открывает меню альтернатив: ё, ъ, акценты, валюты. На клавишах видны подсказки, их можно выключить. Кнопка «=&lt;» открывает вторую страницу символов.\n\nСвайп по пробелу настраивается: смена языка, движение курсора по 12 dp или выключен. Долгое нажатие на пробеле всё равно меняет язык. Свайп влево по Backspace стирает слово, удержание — по символу. Долгое нажатие на Enter открывает панель одной руки. Двойной пробел ставит точку и пробел.</string>
 </resources>
