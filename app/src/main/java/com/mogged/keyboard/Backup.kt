@@ -19,7 +19,15 @@ data class Settings(
     val hapticStrong: Boolean,
     val sound: Boolean,
     val volume: Int,
-    val vibrateStrength: Int
+    val vibrateStrength: Int,
+    val spaceSwipe: String = "lang",
+    val backspaceWord: Boolean = true,
+    val langKey: Boolean = true,
+    val keyOutline: Boolean = false,
+    val keyFontScale: Int = 100,
+    val releaseHaptic: Boolean = false,
+    val customHapticDuration: Int = 24,
+    val oneHandPanel: Boolean = true
 )
 
 /**
@@ -53,12 +61,21 @@ object Backup {
         hapticStrong = true,
         sound = false,
         volume = 35,
-        vibrateStrength = 40
+        vibrateStrength = 40,
+        spaceSwipe = "lang",
+        backspaceWord = true,
+        langKey = true,
+        keyOutline = false,
+        keyFontScale = 100,
+        releaseHaptic = false,
+        customHapticDuration = 24,
+        oneHandPanel = true
     )
 
     private val THEMES = setOf("system", "light", "dark", "amoled")
     private val HANDS = setOf("off", "left", "right")
-    private val HAPTICS = setOf("click", "tick", "strong")
+    private val HAPTICS = setOf("click", "tick", "strong", "custom")
+    private val SWIPES = setOf("lang", "cursor", "off")
 
     /** Снимок текущих настроек. onboarded и check_updates сюда не входят. */
     fun fromPrefs(prefs: Prefs): Settings = Settings(
@@ -77,7 +94,15 @@ object Backup {
         hapticStrong = prefs.hapticStrong,
         sound = prefs.sound,
         volume = prefs.volume,
-        vibrateStrength = prefs.vibrateStrength
+        vibrateStrength = prefs.vibrateStrength,
+        spaceSwipe = prefs.spaceSwipe,
+        backspaceWord = prefs.backspaceWord,
+        langKey = prefs.langKey,
+        keyOutline = prefs.keyOutline,
+        keyFontScale = prefs.keyFontScale,
+        releaseHaptic = prefs.releaseHaptic,
+        customHapticDuration = prefs.customHapticDuration,
+        oneHandPanel = prefs.oneHandPanel
     )
 
     fun applyTo(prefs: Prefs, settings: Settings) {
@@ -97,6 +122,14 @@ object Backup {
         prefs.sound = settings.sound
         prefs.volume = settings.volume
         prefs.vibrateStrength = settings.vibrateStrength
+        prefs.spaceSwipe = settings.spaceSwipe
+        prefs.backspaceWord = settings.backspaceWord
+        prefs.langKey = settings.langKey
+        prefs.keyOutline = settings.keyOutline
+        prefs.keyFontScale = settings.keyFontScale
+        prefs.releaseHaptic = settings.releaseHaptic
+        prefs.customHapticDuration = settings.customHapticDuration
+        prefs.oneHandPanel = settings.oneHandPanel
     }
 
     fun toJson(settings: Settings): String = JSONObject().apply {
@@ -122,6 +155,15 @@ object Backup {
 
         put("sound", settings.sound)
         put("volume", clamp(settings.volume, 0, 100))
+
+        put("spaceSwipe", pick(settings.spaceSwipe, SWIPES, DEFAULT.spaceSwipe))
+        put("backspaceWord", settings.backspaceWord)
+        put("langKey", settings.langKey)
+        put("keyOutline", settings.keyOutline)
+        put("keyFontScale", clamp(settings.keyFontScale, 80, 120))
+        put("releaseHaptic", settings.releaseHaptic)
+        put("customHapticDuration", clamp(settings.customHapticDuration, 5, 60))
+        put("oneHandPanel", settings.oneHandPanel)
     }.toString(2)
 
     /** null — это не наша копия или файл повреждён. */
@@ -153,7 +195,17 @@ object Backup {
             volume = clamp(json.optInt("volume", DEFAULT.volume), 0, 100),
             vibrateStrength = clamp(
                 json.optInt("vibrateStrength", DEFAULT.vibrateStrength), 1, 100
-            )
+            ),
+            spaceSwipe = pick(json.optString("spaceSwipe"), SWIPES, DEFAULT.spaceSwipe),
+            backspaceWord = json.optBoolean("backspaceWord", DEFAULT.backspaceWord),
+            langKey = json.optBoolean("langKey", DEFAULT.langKey),
+            keyOutline = json.optBoolean("keyOutline", DEFAULT.keyOutline),
+            keyFontScale = clamp(json.optInt("keyFontScale", DEFAULT.keyFontScale), 80, 120),
+            releaseHaptic = json.optBoolean("releaseHaptic", DEFAULT.releaseHaptic),
+            customHapticDuration = clamp(
+                json.optInt("customHapticDuration", DEFAULT.customHapticDuration), 5, 60
+            ),
+            oneHandPanel = json.optBoolean("oneHandPanel", DEFAULT.oneHandPanel)
         )
     }
 
