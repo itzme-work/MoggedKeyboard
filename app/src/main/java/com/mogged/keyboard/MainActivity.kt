@@ -21,7 +21,6 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.widget.NestedScrollView
 import androidx.transition.Fade
 import androidx.transition.TransitionManager
@@ -116,7 +115,7 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
-        applyAppTheme()
+        MoggedApp.applyNightMode(prefs.theme)
         setContentView(R.layout.activity_main)
 
         toolbar = findViewById(R.id.toolbar)
@@ -167,18 +166,6 @@ class MainActivity : AppCompatActivity() {
         super.onSaveInstanceState(outState)
         outState.putInt(KEY_SECTION, section)
         outState.putInt(KEY_SCROLL, scroll.scrollY)
-    }
-
-    /** Тема приложения следует выбору темы клавиатуры. */
-    private fun applyAppTheme() {
-        val mode = when (prefs.theme) {
-            "light" -> AppCompatDelegate.MODE_NIGHT_NO
-            "dark", "amoled" -> AppCompatDelegate.MODE_NIGHT_YES
-            else -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
-        }
-        if (AppCompatDelegate.getDefaultNightMode() != mode) {
-            AppCompatDelegate.setDefaultNightMode(mode)
-        }
     }
 
     // ── разделы и навигация ─────────────────────────────────
@@ -285,6 +272,14 @@ class MainActivity : AppCompatActivity() {
         bindSwitch(R.id.swPreview, prefs.keyPreview) { prefs.keyPreview = it }
         bindSwitch(R.id.swDoubleSpace, prefs.doubleSpace) { prefs.doubleSpace = it }
         bindSwitch(R.id.swHapticStrong, prefs.hapticStrong) { prefs.hapticStrong = it }
+        bindSwitch(R.id.swLangKey, prefs.langKey) { prefs.langKey = it }
+        bindSwitch(R.id.swOutline, prefs.keyOutline) {
+            prefs.keyOutline = it
+            miniPreview.refresh()
+        }
+        bindSwitch(R.id.swBackspaceWord, prefs.backspaceWord) { prefs.backspaceWord = it }
+        bindSwitch(R.id.swReleaseHaptic, prefs.releaseHaptic) { prefs.releaseHaptic = it }
+        bindSwitch(R.id.swOneHandPanel, prefs.oneHandPanel) { prefs.oneHandPanel = it }
 
         setupSlider(
             R.id.sldHeight, R.id.heightValue, 220f, 340f, 10f,
@@ -315,7 +310,18 @@ class MainActivity : AppCompatActivity() {
             prefs.vibrateStrength, R.string.vibration_value_short
         ) { prefs.vibrateStrength = it }
 
-        hideLegacyVibration()
+        setupSlider(
+            R.id.sldHapticDuration, R.id.hapticDurationValue, 5f, 60f, 1f,
+            prefs.customHapticDuration, R.string.haptic_duration_value_short
+        ) { prefs.customHapticDuration = it }
+
+        setupSlider(
+            R.id.sldFontScale, R.id.fontScaleValue, 80f, 120f, 5f,
+            prefs.keyFontScale, R.string.font_scale_value_short
+        ) {
+            prefs.keyFontScale = it
+            miniPreview.refresh()
+        }
 
         setupSlider(
             R.id.sldVolume, R.id.volumeValue, 0f, 100f, 1f,
@@ -325,6 +331,7 @@ class MainActivity : AppCompatActivity() {
         bindTheme()
         bindOneHand()
         bindHaptics()
+        bindSpaceSwipe()
 
         findViewById<Button>(R.id.btnResetLook).setOnClickListener {
             confirmReset { resetLook() }
@@ -358,7 +365,7 @@ class MainActivity : AppCompatActivity() {
                 R.id.themeAmoled -> "amoled"
                 else -> "system"
             }
-            applyAppTheme()
+            MoggedApp.applyNightMode(prefs.theme)
         }
     }
 
@@ -388,6 +395,7 @@ class MainActivity : AppCompatActivity() {
             when (Haptics.parse(prefs.hapticStyle)) {
                 HapticStyle.TICK -> R.id.hapticTick
                 HapticStyle.STRONG -> R.id.hapticStrong
+                HapticStyle.CUSTOM -> R.id.hapticCustom
                 HapticStyle.CLICK -> R.id.hapticClick
             }
         )
@@ -396,10 +404,33 @@ class MainActivity : AppCompatActivity() {
             prefs.hapticStyle = when (checkedId) {
                 R.id.hapticTick -> Haptics.key(HapticStyle.TICK)
                 R.id.hapticStrong -> Haptics.key(HapticStyle.STRONG)
+                R.id.hapticCustom -> Haptics.key(HapticStyle.CUSTOM)
                 else -> Haptics.key(HapticStyle.CLICK)
             }
+            // Сила и длительность нужны только «Своему» отклику.
+            updateVibrationUi()
             // Сразу показываем, как звучит выбранный характер.
             sampleHaptic()
+        }
+        updateVibrationUi()
+    }
+
+    private fun bindSpaceSwipe() {
+        val group = findViewById<MaterialButtonToggleGroup>(R.id.spaceSwipeGroup)
+        group.check(
+            when (Gestures.parseSpaceSwipe(prefs.spaceSwipe)) {
+                SpaceSwipe.CURSOR -> R.id.swipeCursor
+                SpaceSwipe.OFF -> R.id.swipeOff
+                SpaceSwipe.LANG -> R.id.swipeLang
+            }
+        )
+        group.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (!isChecked) return@addOnButtonCheckedListener
+            prefs.spaceSwipe = when (checkedId) {
+                R.id.swipeCursor -> Gestures.spaceSwipeKey(SpaceSwipe.CURSOR)
+                R.id.swipeOff -> Gestures.spaceSwipeKey(SpaceSwipe.OFF)
+                else -> Gestures.spaceSwipeKey(SpaceSwipe.LANG)
+            }
         }
     }
 
@@ -418,19 +449,25 @@ class MainActivity : AppCompatActivity() {
 
         val style = Haptics.parse(prefs.hapticStyle)
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            if (style == HapticStyle.CUSTOM || Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                val amplitude = if (vibrator.hasAmplitudeControl()) {
+                    Haptics.amplitude(prefs.vibrateStrength)
+                } else {
+                    VibrationEffect.DEFAULT_AMPLITUDE
+                }
+                val duration = if (style == HapticStyle.CUSTOM) {
+                    Haptics.customDuration(prefs.customHapticDuration)
+                } else {
+                    Haptics.durationMs(style)
+                }
+                vibrator.vibrate(VibrationEffect.createOneShot(duration, amplitude))
+            } else {
                 val effect = when (style) {
                     HapticStyle.TICK -> VibrationEffect.EFFECT_TICK
                     HapticStyle.STRONG -> VibrationEffect.EFFECT_HEAVY_CLICK
-                    HapticStyle.CLICK -> VibrationEffect.EFFECT_CLICK
+                    else -> VibrationEffect.EFFECT_CLICK
                 }
                 vibrator.vibrate(VibrationEffect.createPredefined(effect))
-            } else {
-                val amplitude = (prefs.vibrateStrength.coerceIn(1, 100) * 255 / 100)
-                    .coerceIn(1, 255)
-                vibrator.vibrate(
-                    VibrationEffect.createOneShot(Haptics.durationMs(style), amplitude)
-                )
             }
         } catch (t: Throwable) {
             // вибрация может быть отключена системой
@@ -438,14 +475,28 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * На Android 10+ сила вибрации не действует: характер задают системные
-     * эффекты, поэтому ползунок силы и подпись к нему убираем.
+     * Сила вибрации нужна на Android 8–9 и для «Своего» отклика.
+     * На Android 10+ с системными эффектами ползунок силы не действует.
      */
-    private fun hideLegacyVibration() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
-        listOf(R.id.vibrationRow, R.id.sldVibration, R.id.vibrationHint).forEach { id ->
-            findViewById<View>(id).visibility = View.GONE
+    private fun updateVibrationUi() {
+        val custom = Haptics.parse(prefs.hapticStyle) == HapticStyle.CUSTOM
+        val showStrength = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || custom
+
+        listOf(R.id.vibrationRow, R.id.sldVibration).forEach { id ->
+            findViewById<View>(id).visibility =
+                if (showStrength) View.VISIBLE else View.GONE
         }
+        listOf(R.id.hapticDurationRow, R.id.sldHapticDuration).forEach { id ->
+            findViewById<View>(id).visibility =
+                if (custom) View.VISIBLE else View.GONE
+        }
+
+        val hint = findViewById<TextView>(R.id.vibrationHint)
+        hint.visibility = if (showStrength) View.VISIBLE else View.GONE
+        hint.setText(
+            if (custom) R.string.vibration_custom_hint
+            else R.string.vibration_legacy_hint
+        )
     }
 
     private fun bindSwitch(id: Int, value: Boolean, save: (Boolean) -> Unit) {
@@ -496,7 +547,7 @@ class MainActivity : AppCompatActivity() {
             .setNegativeButton(R.string.reset_cancel, null)
             .setPositiveButton(R.string.reset_ok) { _, _ ->
                 action()
-                applyAppTheme()
+                MoggedApp.applyNightMode(prefs.theme)
                 toast(R.string.reset_done)
                 // Пересоздаём экран: все ползунки и переключатели снова
                 // показывают значения по умолчанию.
@@ -511,6 +562,8 @@ class MainActivity : AppCompatActivity() {
         prefs.height = height
         prefs.keyRadius = keyRadius
         prefs.theme = theme
+        prefs.keyOutline = keyOutline
+        prefs.keyFontScale = keyFontScale
     }
 
     private fun resetInput() = with(Backup.DEFAULT) {
@@ -519,6 +572,10 @@ class MainActivity : AppCompatActivity() {
         prefs.numberRow = numberRow
         prefs.doubleSpace = doubleSpace
         prefs.autoShift = autoShift
+        prefs.spaceSwipe = spaceSwipe
+        prefs.backspaceWord = backspaceWord
+        prefs.langKey = langKey
+        prefs.oneHandPanel = oneHandPanel
     }
 
     private fun resetFeel() = with(Backup.DEFAULT) {
@@ -528,6 +585,8 @@ class MainActivity : AppCompatActivity() {
         prefs.sound = sound
         prefs.volume = volume
         prefs.vibrateStrength = vibrateStrength
+        prefs.releaseHaptic = releaseHaptic
+        prefs.customHapticDuration = customHapticDuration
     }
 
     // ── резервная копия ──────────────────────────────────────
@@ -597,7 +656,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         Backup.applyTo(prefs, settings)
-        applyAppTheme()
+        MoggedApp.applyNightMode(prefs.theme)
         toast(R.string.backup_loaded)
         recreate()
     }
