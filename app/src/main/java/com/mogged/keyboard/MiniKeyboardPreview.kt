@@ -3,11 +3,12 @@ package com.mogged.keyboard
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
-import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.util.AttributeSet
 import android.view.View
+import androidx.appcompat.content.res.AppCompatResources
+import androidx.core.graphics.drawable.DrawableCompat
 import com.google.android.material.color.MaterialColors
 
 /**
@@ -43,18 +44,23 @@ class MiniKeyboardPreview @JvmOverloads constructor(
                 MiniKey("д", 1f, LETTER)
             ),
             listOf(
-                MiniKey("⇧", 1.4f, FUNCTION),
+                MiniKey("⇧", 1.4f, FUNCTION, R.drawable.ic_shift_off),
                 MiniKey("я", 0.95f, LETTER), MiniKey("ч", 0.95f, LETTER),
                 MiniKey("с", 0.95f, LETTER), MiniKey("м", 0.95f, LETTER),
                 MiniKey("и", 0.95f, LETTER), MiniKey("т", 0.95f, LETTER),
                 MiniKey("ь", 0.95f, LETTER),
-                MiniKey("⌫", 0.95f, FUNCTION),
-                MiniKey("↵", 1f, PRIMARY)
+                MiniKey("⌫", 0.95f, FUNCTION, R.drawable.ic_backspace),
+                MiniKey("↵", 1f, PRIMARY, R.drawable.ic_enter)
             )
         )
     }
 
-    private class MiniKey(val label: String, val weight: Float, val kind: Int)
+    private class MiniKey(
+        val label: String,
+        val weight: Float,
+        val kind: Int,
+        val iconRes: Int = 0
+    )
 
     private val prefs = Prefs(context)
     private val density = resources.displayMetrics.density
@@ -65,7 +71,10 @@ class MiniKeyboardPreview @JvmOverloads constructor(
         typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
     }
     private val rect = RectF()
-    private val arrow = Path()
+    private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = dp(1f)
+    }
 
     /** Перерисовать после изменения настроек вида. */
     fun refresh() {
@@ -122,9 +131,16 @@ class MiniKeyboardPreview @JvmOverloads constructor(
         )
         val primaryBg = color(com.google.android.material.R.attr.colorPrimary, 0xFFD0BCFF.toInt())
         val primaryFg = color(com.google.android.material.R.attr.colorOnPrimary, 0xFF381E72.toInt())
+        val outlineColor = color(
+            com.google.android.material.R.attr.colorOutlineVariant,
+            0xFF49454F.toInt()
+        )
+        stroke.color = outlineColor
 
         val innerGap = gap * 0.6f
-        textPaint.textSize = rowHeight * 0.38f
+        // Масштаб шрифта из настроек действует и в предпросмотре.
+        val scale = prefs.keyFontScale.coerceIn(80, 120) / 100f
+        textPaint.textSize = rowHeight * 0.38f * scale
 
         ROWS.forEachIndexed { rowIndex, keys ->
             val total = keys.sumOf { it.weight.toDouble() }.toFloat()
@@ -142,6 +158,9 @@ class MiniKeyboardPreview @JvmOverloads constructor(
                     else -> letterBg
                 }
                 canvas.drawRoundRect(rect, radius, radius, fill)
+                if (prefs.keyOutline) {
+                    canvas.drawRoundRect(rect, radius, radius, stroke)
+                }
 
                 val fg = when (key.kind) {
                     FUNCTION -> functionFg
@@ -156,18 +175,16 @@ class MiniKeyboardPreview @JvmOverloads constructor(
     }
 
     private fun drawLabel(canvas: Canvas, key: MiniKey, box: RectF, color: Int) {
-        if (key.kind == FUNCTION && key.label == "⇧") {
-            // Shift рисуем треугольником — как на настоящей клавиатуре.
-            val size = box.height() * 0.22f
-            val cx = box.centerX()
-            val cy = box.centerY()
-            arrow.reset()
-            arrow.moveTo(cx, cy - size)
-            arrow.lineTo(cx - size, cy + size * 0.6f)
-            arrow.lineTo(cx + size, cy + size * 0.6f)
-            arrow.close()
-            fill.color = color
-            canvas.drawPath(arrow, fill)
+        if (key.iconRes != 0) {
+            // Функциональные клавиши — те же векторные иконки, что на клавиатуре.
+            val icon = AppCompatResources.getDrawable(context, key.iconRes)?.mutate()
+                ?: return
+            DrawableCompat.setTint(icon, color)
+            val size = (box.height() * 0.36f).toInt().coerceAtLeast(1)
+            val left = (box.centerX() - size / 2f).toInt()
+            val top = (box.centerY() - size / 2f).toInt()
+            icon.setBounds(left, top, left + size, top + size)
+            icon.draw(canvas)
             return
         }
 
