@@ -39,39 +39,68 @@
             app:labelVisibilityMode="labeled"
             app:menu="@menu/nav_sections" />
 
-        <androidx.core.widget.NestedScrollView
-            android:id="@+id/scroll"
+        <LinearLayout
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
-            android:fillViewport="true">
+            android:orientation="vertical">
 
-            <FrameLayout
-                android:id="@+id/sectionHost"
+            <androidx.core.widget.NestedScrollView
+                android:id="@+id/scroll"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content">
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:fillViewport="true">
 
-                <include
-                    android:id="@+id/secHome"
-                    layout="@layout/section_home" />
+                <FrameLayout
+                    android:id="@+id/sectionHost"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content">
 
-                <include
-                    android:id="@+id/secLook"
-                    layout="@layout/section_look" />
+                    <include
+                        android:id="@+id/secHome"
+                        layout="@layout/section_home" />
 
-                <include
-                    android:id="@+id/secInput"
-                    layout="@layout/section_input" />
+                    <include
+                        android:id="@+id/secLook"
+                        layout="@layout/section_look" />
 
-                <include
-                    android:id="@+id/secFeel"
-                    layout="@layout/section_feel" />
+                    <include
+                        android:id="@+id/secInput"
+                        layout="@layout/section_input" />
 
-                <include
-                    android:id="@+id/secMore"
-                    layout="@layout/section_more" />
-            </FrameLayout>
-        </androidx.core.widget.NestedScrollView>
+                    <include
+                        android:id="@+id/secFeel"
+                        layout="@layout/section_feel" />
+
+                    <include
+                        android:id="@+id/secMore"
+                        layout="@layout/section_more" />
+                </FrameLayout>
+            </androidx.core.widget.NestedScrollView>
+
+            <!--
+                Поле проверки закреплено над нижней навигацией: оно не уезжает
+                при прокрутке раздела, и клавиатуру можно пробовать откуда угодно.
+            -->
+            <com.google.android.material.textfield.TextInputLayout
+                style="?attr/textInputOutlinedStyle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="16dp"
+                android:layout_marginTop="4dp"
+                android:layout_marginEnd="16dp"
+                android:layout_marginBottom="4dp"
+                android:hint="@string/test_field_hint">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/testField"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="textMultiLine|textCapSentences"
+                    android:minLines="1" />
+            </com.google.android.material.textfield.TextInputLayout>
+        </LinearLayout>
     </LinearLayout>
 
     <com.google.android.material.bottomnavigation.BottomNavigationView
