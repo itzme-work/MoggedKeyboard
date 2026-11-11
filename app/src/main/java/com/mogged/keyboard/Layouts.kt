@@ -43,14 +43,15 @@ object Layouts {
         lang: Lang,
         extraLeft: String,
         extraRight: String,
-        numberRow: Boolean = false
+        numberRow: Boolean = false,
+        langKey: Boolean = true
     ): List<List<Key>> {
         val layout = when (page) {
             Page.SYMBOLS -> symbols(extraLeft, extraRight)
             Page.SYMBOLS2 -> symbols2(extraLeft, extraRight)
             Page.LETTERS ->
-                if (lang == Lang.RU) russian(extraLeft, extraRight)
-                else english(extraLeft, extraRight)
+                if (lang == Lang.RU) russian(extraLeft, extraRight, langKey)
+                else english(extraLeft, extraRight, langKey)
         }
         return if (numberRow && page == Page.LETTERS) {
             listOf<List<Key>>(chars("1234567890")) + layout
@@ -178,31 +179,50 @@ object Layouts {
     private fun bottom(
         toSymbols: Boolean,
         extraLeft: String,
-        extraRight: String
-    ): List<Key> = listOf(
-        if (toSymbols) Key.ToSymbols else Key.ToLetters,
-        Key.LangKey,
-        symbolKey(extraLeft),
-        Key.Space,
-        symbolKey(extraRight),
-        Key.Enter
-    )
+        extraRight: String,
+        langKey: Boolean
+    ): List<Key> = buildList {
+        add(if (toSymbols) Key.ToSymbols else Key.ToLetters)
+        // Без отдельной кнопки языка пробел занимает её место.
+        if (langKey) add(Key.LangKey)
+        add(symbolKey(extraLeft))
+        add(Key.Space)
+        add(symbolKey(extraRight))
+        add(Key.Enter)
+    }
 
-    private fun russian(extraLeft: String, extraRight: String): List<List<Key>> = listOf(
+    private fun russian(
+        extraLeft: String,
+        extraRight: String,
+        langKey: Boolean
+    ): List<List<Key>> = listOf(
         letters("йцукенгшщзхъ", ruExtras),
         letters("фывапролджэ", ruExtras),
         listOf(Key.Shift) + letters("ячсмитьбю", ruExtras) + listOf(Key.Backspace),
-        bottom(toSymbols = true, extraLeft = extraLeft, extraRight = extraRight)
+        bottom(
+            toSymbols = true, extraLeft = extraLeft,
+            extraRight = extraRight, langKey = langKey
+        )
     )
 
-    private fun english(extraLeft: String, extraRight: String): List<List<Key>> = listOf(
+    private fun english(
+        extraLeft: String,
+        extraRight: String,
+        langKey: Boolean
+    ): List<List<Key>> = listOf(
         letters("qwertyuiop", enExtras),
         letters("asdfghjkl", enExtras),
         listOf(Key.Shift) + letters("zxcvbnm", enExtras) + listOf(Key.Backspace),
-        bottom(toSymbols = true, extraLeft = extraLeft, extraRight = extraRight)
+        bottom(
+            toSymbols = true, extraLeft = extraLeft,
+            extraRight = extraRight, langKey = langKey
+        )
     )
 
-    private fun symbols(extraLeft: String, extraRight: String): List<List<Key>> = listOf(
+    private fun symbols(
+        extraLeft: String,
+        extraRight: String
+    ): List<List<Key>> = listOf(
         chars("1234567890"),
         chars("@#\$_&-+()/"),
         chars("*\"':;!?") + Key.Backspace,
@@ -216,7 +236,10 @@ object Layouts {
         )
     )
 
-    private fun symbols2(extraLeft: String, extraRight: String): List<List<Key>> = listOf(
+    private fun symbols2(
+        extraLeft: String,
+        extraRight: String
+    ): List<List<Key>> = listOf(
         chars("~\u0060|•√π÷×=<"),
         chars("%©™°¢€£¥"),
         chars("«»„“”–—…·") + Key.Backspace,
