@@ -1,21 +1,25 @@
 package com.mogged.keyboard
 
 import android.content.Context
+import android.content.res.Configuration
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.util.AttributeSet
+import android.view.ContextThemeWrapper
 import android.view.View
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.graphics.drawable.DrawableCompat
+import com.google.android.material.color.DynamicColors
 import com.google.android.material.color.MaterialColors
 
 /**
  * Живой мини-предпросмотр клавиатуры: три ряда клавиш в цветах темы.
  *
  * Читает настройки раздела «Вид» при каждой перерисовке, поэтому ширина,
- * режим одной руки и радиус меняются сразу, без перезапуска приложения.
+ * режим одной руки, радиус и цвета меняются сразу, без перезапуска.
+ * Палитра берётся под выбранную тему клавиатуры, включая AMOLED.
  */
 class MiniKeyboardPreview @JvmOverloads constructor(
     context: Context,
@@ -65,6 +69,10 @@ class MiniKeyboardPreview @JvmOverloads constructor(
     private val prefs = Prefs(context)
     private val density = resources.displayMetrics.density
 
+    /** Контекст палитры под тему клавиатуры; пересоздаётся при её смене. */
+    private var paletteContext: Context = context
+    private var paletteTheme: String? = null
+
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         textAlign = Paint.Align.CENTER
@@ -94,6 +102,7 @@ class MiniKeyboardPreview @JvmOverloads constructor(
 
         val pad = dp(6f)
         val gap = dp(3f)
+        val ctx = palette()
 
         // Показываем ту же долю ширины, что и настоящая клавиатура:
         // настройка 50 % действительно выглядит вдвое уже.
@@ -116,25 +125,52 @@ class MiniKeyboardPreview @JvmOverloads constructor(
         val radius = dp(prefs.keyRadius.coerceIn(0, 20) * 0.55f)
             .coerceIn(0f, maxRadius)
 
-        val letterBg = color(
+        var letterBg = color(
+            ctx,
             com.google.android.material.R.attr.colorSurfaceContainerHigh,
             0xFF2B2930.toInt()
         )
-        val letterFg = color(com.google.android.material.R.attr.colorOnSurface, 0xFFE6E1E5.toInt())
-        val functionBg = color(
+        var letterFg = color(
+            ctx,
+            com.google.android.material.R.attr.colorOnSurface,
+            0xFFE6E1E5.toInt()
+        )
+        var functionBg = color(
+            ctx,
             com.google.android.material.R.attr.colorSecondaryContainer,
             0xFF4A4458.toInt()
         )
-        val functionFg = color(
+        var functionFg = color(
+            ctx,
             com.google.android.material.R.attr.colorOnSecondaryContainer,
             0xFFE8DEF8.toInt()
         )
-        val primaryBg = color(com.google.android.material.R.attr.colorPrimary, 0xFFD0BCFF.toInt())
-        val primaryFg = color(com.google.android.material.R.attr.colorOnPrimary, 0xFF381E72.toInt())
-        val outlineColor = color(
+        var primaryBg = color(
+            ctx,
+            com.google.android.material.R.attr.colorPrimary,
+            0xFFD0BCFF.toInt()
+        )
+        var primaryFg = color(
+            ctx,
+            com.google.android.material.R.attr.colorOnPrimary,
+            0xFF381E72.toInt()
+        )
+        var outlineColor = color(
+            ctx,
             com.google.android.material.R.attr.colorOutlineVariant,
             0xFF49454F.toInt()
         )
+
+        // AMOLED показывает ту же почти чёрную палитру, что и живая клавиатура.
+        if (prefs.theme == "amoled") {
+            letterBg = 0xFF131217.toInt()
+            letterFg = 0xFFE6E1E5.toInt()
+            functionBg = 0xFF2A2633.toInt()
+            functionFg = 0xFFE6E0F0.toInt()
+            primaryBg = 0xFFD0BCFF.toInt()
+            primaryFg = 0xFF381E72.toInt()
+            outlineColor = 0xFF49454F.toInt()
+        }
         stroke.color = outlineColor
 
         val innerGap = gap * 0.6f
@@ -193,8 +229,34 @@ class MiniKeyboardPreview @JvmOverloads constructor(
         canvas.drawText(key.label, box.centerX(), baseline, textPaint)
     }
 
-    private fun color(attr: Int, fallback: Int): Int =
-        MaterialColors.getColor(this, attr, fallback)
+    /**
+     * Контекст палитры под выбранную тему клавиатуры: системная, светлая,
+     * тёмная или AMOLED. Предпросмотр не зависит от темы приложения.
+     */
+    private fun palette(): Context {
+        val theme = prefs.theme
+        if (theme == paletteTheme) return paletteContext
+
+        val config = Configuration(resources.configuration)
+        val withoutNight = config.uiMode and Configuration.UI_MODE_NIGHT_MASK.inv()
+        when (theme) {
+            "light" -> config.uiMode = withoutNight or Configuration.UI_MODE_NIGHT_NO
+            "dark", "amoled" -> config.uiMode = withoutNight or Configuration.UI_MODE_NIGHT_YES
+        }
+
+        val base = context.createConfigurationContext(config)
+        val themed = ContextThemeWrapper(base, R.style.Theme_Mogged_Keyboard)
+        paletteContext = try {
+            DynamicColors.wrapContextIfAvailable(themed)
+        } catch (t: Throwable) {
+            themed
+        }
+        paletteTheme = theme
+        return paletteContext
+    }
+
+    private fun color(context: Context, attr: Int, fallback: Int): Int =
+        MaterialColors.getColor(context, attr, fallback)
 
     private fun dp(value: Float): Float = value * density
 }
