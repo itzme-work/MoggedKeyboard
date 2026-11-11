@@ -61,8 +61,11 @@ class HapticsTest {
         assertEquals(5L, Haptics.customDuration(0))
         assertEquals(60L, Haptics.customDuration(999))
         assertEquals(24L, Haptics.customDuration(24))
-        assertEquals(1, Haptics.amplitude(0))
-        assertEquals(255, Haptics.amplitude(100))
+        // Процент зажимается в 1..100, амплитуда — в 1..255:
+        // 1% от 255 в целых числах даёт 2, 50% — 127, 100% — 255.
+        assertEquals(2, Haptics.amplitude(0))
+        assertEquals(2, Haptics.amplitude(1))
         assertEquals(127, Haptics.amplitude(50))
+        assertEquals(255, Haptics.amplitude(100))
     }
 }
