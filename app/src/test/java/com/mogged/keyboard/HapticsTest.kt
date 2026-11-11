@@ -45,4 +45,24 @@ class HapticsTest {
             Haptics.effective(HapticStyle.TICK, strongKey = false, strongEnabled = true)
         )
     }
+
+    @Test
+    fun customStyleIsParsedAndNotBoosted() {
+        assertEquals(HapticStyle.CUSTOM, Haptics.parse("custom"))
+        assertEquals("custom", Haptics.key(HapticStyle.CUSTOM))
+        assertEquals(
+            HapticStyle.CUSTOM,
+            Haptics.effective(HapticStyle.CUSTOM, strongKey = true, strongEnabled = true)
+        )
+    }
+
+    @Test
+    fun customDurationAndAmplitudeStayInRange() {
+        assertEquals(5L, Haptics.customDuration(0))
+        assertEquals(60L, Haptics.customDuration(999))
+        assertEquals(24L, Haptics.customDuration(24))
+        assertEquals(1, Haptics.amplitude(0))
+        assertEquals(255, Haptics.amplitude(100))
+        assertEquals(127, Haptics.amplitude(50))
+    }
 }
