@@ -85,6 +85,52 @@ class Prefs(context: Context) {
         get() = store.getInt("vibrate_strength", 40)
         set(value) = store.edit().putInt("vibrate_strength", value).apply()
 
+    /** Свайп по пробелу: lang, cursor или off. */
+    var spaceSwipe: String
+        get() = Gestures.spaceSwipeKey(
+            Gestures.parseSpaceSwipe(store.getString("space_swipe", "lang"))
+        )
+        set(value) = store.edit().putString(
+            "space_swipe", Gestures.spaceSwipeKey(Gestures.parseSpaceSwipe(value))
+        ).apply()
+
+    /** Свайп влево по Backspace удаляет слово. */
+    var backspaceWord: Boolean
+        get() = store.getBoolean("backspace_word", true)
+        set(value) = store.edit().putBoolean("backspace_word", value).apply()
+
+    /** Отдельная кнопка смены языка: выключенная — пробел занимает её место. */
+    var langKey: Boolean
+        get() = store.getBoolean("lang_key", true)
+        set(value) = store.edit().putBoolean("lang_key", value).apply()
+
+    /** Обводка клавиш цветом outlineVariant. */
+    var keyOutline: Boolean
+        get() = store.getBoolean("key_outline", false)
+        set(value) = store.edit().putBoolean("key_outline", value).apply()
+
+    /** Масштаб шрифта клавиш в процентах, 80..120. */
+    var keyFontScale: Int
+        get() = store.getInt("key_font_scale", 100).coerceIn(80, 120)
+        set(value) = store.edit().putInt("key_font_scale", value.coerceIn(80, 120)).apply()
+
+    /** Дополнительный отклик в момент отпускания клавиши. */
+    var releaseHaptic: Boolean
+        get() = store.getBoolean("release_haptic", false)
+        set(value) = store.edit().putBoolean("release_haptic", value).apply()
+
+    /** Длительность «Своего» отклика, 5..60 мс. */
+    var customHapticDuration: Int
+        get() = store.getInt("custom_haptic_duration", 24).coerceIn(5, 60)
+        set(value) = store.edit().putInt(
+            "custom_haptic_duration", value.coerceIn(5, 60)
+        ).apply()
+
+    /** Долгое нажатие на Enter открывает панель одной руки. */
+    var oneHandPanel: Boolean
+        get() = store.getBoolean("one_hand_panel", true)
+        set(value) = store.edit().putBoolean("one_hand_panel", value).apply()
+
     /** Громкость звука нажатий, 0..100. */
     var volume: Int
         get() = store.getInt("volume", 35)
