@@ -366,6 +366,9 @@ class MainActivity : AppCompatActivity() {
                 else -> "system"
             }
             MoggedApp.applyNightMode(prefs.theme)
+            // Тёмная и AMOLED дают один и тот же ночной режим, поэтому
+            // экран не пересоздаётся — предпросмотр перекрашиваем руками.
+            miniPreview.refresh()
         }
     }
 
