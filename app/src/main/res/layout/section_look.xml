@@ -114,6 +114,24 @@
             </com.google.android.material.button.MaterialButtonToggleGroup>
 
             <com.google.android.material.materialswitch.MaterialSwitch
+                android:id="@+id/swDynamic"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:minHeight="48dp"
+                android:text="@string/pref_dynamic" />
+
+            <TextView
+                android:id="@+id/dynamicHint"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
+                android:text="@string/dynamic_hint"
+                android:textAppearance="?attr/textAppearanceBodySmall"
+                android:textColor="?attr/colorOnSurfaceVariant" />
+
+            <com.google.android.material.materialswitch.MaterialSwitch
                 android:id="@+id/swOutline"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
