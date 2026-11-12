@@ -26,6 +26,7 @@ import androidx.transition.Fade
 import androidx.transition.TransitionManager
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButtonToggleGroup
+import com.google.android.material.color.DynamicColors
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.navigation.NavigationBarView
@@ -276,6 +277,15 @@ class MainActivity : AppCompatActivity() {
         bindSwitch(R.id.swOutline, prefs.keyOutline) {
             prefs.keyOutline = it
             miniPreview.refresh()
+        }
+        // Палитра выбирается при создании экрана, поэтому переключатель
+        // сразу пересоздаёт его — клавиатура подхватит цвет при следующем показе.
+        bindSwitch(R.id.swDynamic, prefs.dynamicColor) {
+            prefs.dynamicColor = it
+            recreate()
+        }
+        if (!DynamicColors.isDynamicColorAvailable()) {
+            findViewById<TextView>(R.id.dynamicHint).setText(R.string.dynamic_unavailable)
         }
         bindSwitch(R.id.swBackspaceWord, prefs.backspaceWord) { prefs.backspaceWord = it }
         bindSwitch(R.id.swReleaseHaptic, prefs.releaseHaptic) { prefs.releaseHaptic = it }
@@ -567,6 +577,7 @@ class MainActivity : AppCompatActivity() {
         prefs.theme = theme
         prefs.keyOutline = keyOutline
         prefs.keyFontScale = keyFontScale
+        prefs.dynamicColor = dynamicColor
     }
 
     private fun resetInput() = with(Backup.DEFAULT) {
