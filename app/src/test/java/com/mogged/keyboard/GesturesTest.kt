@@ -74,4 +74,15 @@ class GesturesTest {
         assertEquals(2, Gestures.wordDeleteCount("😀"))
         assertEquals(4, Gestures.wordDeleteCount("ok😀"))
     }
+
+    @Test
+    fun tapSlopIsTwelveDp() {
+        val slop = Gestures.TAP_SLOP_DP * density
+        // Лёгкое дрожание пальца — ещё нажатие, а не жест.
+        assertFalse(Gestures.movedEnough(slop - 1f, slop - 1f, density))
+        assertFalse(Gestures.movedEnough(-slop, slop, density))
+        assertTrue(Gestures.movedEnough(slop + 1f, 0f, density))
+        assertTrue(Gestures.movedEnough(0f, -slop - 1f, density))
+        assertFalse(Gestures.movedEnough(100f, 100f, 0f))
+    }
 }
