@@ -32,7 +32,8 @@ class BackupTest {
         keyFontScale = 115,
         releaseHaptic = true,
         customHapticDuration = 40,
-        oneHandPanel = false
+        oneHandPanel = false,
+        dynamicColor = false
     )
 
     @Test
@@ -126,6 +127,7 @@ class BackupTest {
         assertEquals(false, settings.releaseHaptic)
         assertEquals(24, settings.customHapticDuration)
         assertEquals(true, settings.oneHandPanel)
+        assertEquals(true, settings.dynamicColor)
     }
 
     @Test
