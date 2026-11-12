@@ -35,6 +35,11 @@ class Prefs(context: Context) {
         get() = store.getString("theme", "system") ?: "system"
         set(value) = store.edit().putString("theme", value).apply()
 
+    /** Цвета из обоев (Material You). Выключено — базовая палитра Material 3. */
+    var dynamicColor: Boolean
+        get() = store.getBoolean("dynamic_color", true)
+        set(value) = store.edit().putBoolean("dynamic_color", value).apply()
+
     /** Радиус клавиш в dp. */
     var keyRadius: Int
         get() = store.getInt("key_radius", 11)
