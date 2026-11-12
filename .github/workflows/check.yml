@@ -111,3 +111,25 @@ jobs:
             fi
           fi
           exit "$code"
+
+      # Повтор после Lint: если упал именно Lint, причина тоже должна
+      # попасть в аннотации — журнал Job читает только владелец.
+      - name: Причина падения
+        if: failure()
+        run: |
+          set +e
+          LOG="$RUNNER_TEMP/unit.log"
+          if [ -f "$LOG" ]; then
+            grep -aE 'e: file:|AAPT|FAILURE:|Execution failed|FAILED|AssertionError|expected:|but was|Caused by|error: ' "$LOG" \
+              | head -40 \
+              | while IFS= read -r line; do
+                  echo "::error::$(printf '%s' "$line" | tr -d '\r' | sed 's/%/%25/g')"
+                done
+          fi
+
+          R=app/build/reports/lint-results-release.txt
+          if [ -f "$R" ]; then
+            head -40 "$R" | while IFS= read -r line; do
+              echo "::error::$(printf '%s' "$line" | tr -d '\r' | sed 's/%/%25/g')"
+            done
+          fi
