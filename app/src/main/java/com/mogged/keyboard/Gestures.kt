@@ -26,7 +26,7 @@ object Gestures {
     const val CURSOR_STEP_DP = 12f
 
     /** Смещение, после которого отпускание не считается обычным нажатием. */
-    const val TAP_SLOP_DP = 8f
+    const val TAP_SLOP_DP = 12f
 
     fun parseSpaceSwipe(value: String?): SpaceSwipe = when (value) {
         "cursor" -> SpaceSwipe.CURSOR
