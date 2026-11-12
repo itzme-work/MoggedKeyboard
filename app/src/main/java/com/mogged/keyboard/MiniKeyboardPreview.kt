@@ -71,7 +71,7 @@ class MiniKeyboardPreview @JvmOverloads constructor(
 
     /** Контекст палитры под тему клавиатуры; пересоздаётся при её смене. */
     private var paletteContext: Context = context
-    private var paletteTheme: String? = null
+    private var paletteKey: String? = null
 
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG)
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -161,15 +161,13 @@ class MiniKeyboardPreview @JvmOverloads constructor(
             0xFF49454F.toInt()
         )
 
-        // AMOLED показывает ту же почти чёрную палитру, что и живая клавиатура.
+        // AMOLED показывает ту же почти чёрную палитру, что и живая клавиатура,
+        // но акценты берёт из выбранной палитры — как и она.
         if (prefs.theme == "amoled") {
-            letterBg = 0xFF131217.toInt()
-            letterFg = 0xFFE6E1E5.toInt()
-            functionBg = 0xFF2A2633.toInt()
-            functionFg = 0xFFE6E0F0.toInt()
-            primaryBg = 0xFFD0BCFF.toInt()
-            primaryFg = 0xFF381E72.toInt()
-            outlineColor = 0xFF49454F.toInt()
+            letterBg = Palette.amoledSurface(letterFg)
+            functionBg = Palette.amoledAccent(primaryBg)
+            functionFg = letterFg
+            outlineColor = Palette.amoledOutline(letterFg)
         }
         stroke.color = outlineColor
 
@@ -235,7 +233,9 @@ class MiniKeyboardPreview @JvmOverloads constructor(
      */
     private fun palette(): Context {
         val theme = prefs.theme
-        if (theme == paletteTheme) return paletteContext
+        // Ключ включает и динамические цвета: выключение перекрашивает сразу.
+        val key = "$theme/${prefs.dynamicColor}"
+        if (key == paletteKey) return paletteContext
 
         val config = Configuration(resources.configuration)
         val withoutNight = config.uiMode and Configuration.UI_MODE_NIGHT_MASK.inv()
@@ -246,12 +246,16 @@ class MiniKeyboardPreview @JvmOverloads constructor(
 
         val base = context.createConfigurationContext(config)
         val themed = ContextThemeWrapper(base, R.style.Theme_Mogged_Keyboard)
-        paletteContext = try {
-            DynamicColors.wrapContextIfAvailable(themed)
-        } catch (t: Throwable) {
+        paletteContext = if (prefs.dynamicColor) {
+            try {
+                DynamicColors.wrapContextIfAvailable(themed)
+            } catch (t: Throwable) {
+                themed
+            }
+        } else {
             themed
         }
-        paletteTheme = theme
+        paletteKey = key
         return paletteContext
     }
 
