@@ -75,6 +75,7 @@ class MoggedKeyboardService : InputMethodService() {
 
     // текущие настройки, чтобы не читать SharedPreferences на каждое нажатие
     private var selTheme = "system"
+    private var dynamicColor = true
     private var keyRadiusDp = 11
     private var widthPercent = 100
     private var oneHand = "off"
@@ -101,6 +102,9 @@ class MoggedKeyboardService : InputMethodService() {
     /** Тема, с которой построен текущий input view. */
     private var builtTheme: String? = null
 
+    /** С каким значением динамических цветов построен текущий input view. */
+    private var builtDynamic: Boolean? = null
+
     private var clickSound: ClickSound? = null
     private var vibrator: Vibrator? = null
 
@@ -114,8 +118,8 @@ class MoggedKeyboardService : InputMethodService() {
 
     // ── цвета темы ────────────────────────────────────────────
     private var cSurface = 0xFF1C1B1F.toInt()
-    private var cKey = 0xFF2B2930.toInt()
     private var cOnKey = 0xFFE6E1E5.toInt()
+    private var cOnKeyVariant = 0xFFCAC4D0.toInt()
     private var cPrimary = 0xFFD0BCFF.toInt()
     private var cOnPrimary = 0xFF381E72.toInt()
     private var cPrimaryContainer = 0xFF4F378B.toInt()
@@ -125,7 +129,6 @@ class MoggedKeyboardService : InputMethodService() {
     private var cSecondaryContainer = 0xFF4A4458.toInt()
     private var cOnSecondaryContainer = 0xFFE8DEF8.toInt()
     private var cOutlineVariant = 0xFF49454F.toInt()
-    private var cRipple = 0x33FFFFFF
 
     // размеры шрифта, зависят от экрана
     private var letterSize = 20f
@@ -173,6 +176,7 @@ class MoggedKeyboardService : InputMethodService() {
 
     private fun loadPrefs() {
         selTheme = prefs.theme
+        dynamicColor = prefs.dynamicColor
         keyRadiusDp = prefs.keyRadius
         widthPercent = prefs.width
         oneHand = prefs.oneHand
@@ -206,6 +210,7 @@ class MoggedKeyboardService : InputMethodService() {
     private fun buildInputView(): View {
         dismissOneHandPanel()
         builtTheme = selTheme
+        builtDynamic = dynamicColor
 
         // Тема из манифеста у IME не применяется, поэтому оборачиваем контекст сами:
         // так работают и Material-атрибуты, и динамические цвета Material You.
@@ -283,6 +288,8 @@ class MoggedKeyboardService : InputMethodService() {
 
         val base = createConfigurationContext(config)
         val themed = ContextThemeWrapper(base, R.style.Theme_Mogged_Keyboard)
+        // Динамические цвета выключены — остаётся базовая палитра Material 3.
+        if (!dynamicColor) return themed
         return try {
             DynamicColors.wrapContextIfAvailable(themed)
         } catch (t: Throwable) {
@@ -318,29 +325,27 @@ class MoggedKeyboardService : InputMethodService() {
         )
         cOutlineVariant = attr(
             com.google.android.material.R.attr.colorOutlineVariant,
-            blend(cOnKey, cSurface, 0.45f)
+            Palette.blend(cOnKey, cSurface, 0.45f)
         )
 
-        // Клавиши — тот же фон, чуть светлее/темнее (эффект «поднятой» поверхности).
-        cKey = blend(cSurface, cOnKey, 0.10f)
-        cRipple = withAlpha(cOnKey, 0.22f)
-
-        // AMOLED: фон действительно чёрный, клавиши — почти чёрные.
+        // Клавиши берут цвета из тональных ролей выше: своих смесей нет,
+        // поэтому палитра и системный контраст передаются без искажений.
+        // AMOLED: фон действительно чёрный, поверхности почти чёрные,
+        // а акценты (Enter, Shift, панели) остаются из выбранной палитры.
         if (selTheme == "amoled") {
             cSurface = Color.BLACK
-            cOnKey = 0xFFE6E1E5.toInt()
-            cKey = 0xFF131217.toInt()
-            cPrimary = 0xFFD0BCFF.toInt()
-            cOnPrimary = 0xFF381E72.toInt()
-            cPrimaryContainer = 0xFF332D41.toInt()
-            cOnPrimaryContainer = 0xFFEADDFF.toInt()
-            cSurfaceContainerHigh = 0xFF151419.toInt()
-            cSurfaceContainerHighest = 0xFF1D1C21.toInt()
-            cSecondaryContainer = 0xFF2A2633.toInt()
-            cOnSecondaryContainer = 0xFFE6E0F0.toInt()
-            cOutlineVariant = 0xFF49454F.toInt()
-            cRipple = 0x33FFFFFF
+            cSurfaceContainerHigh = Palette.amoledSurface(cOnKey)
+            cSurfaceContainerHighest = Palette.amoledHighest(cOnKey)
+            cSecondaryContainer = Palette.amoledAccent(cPrimary)
+            cOnSecondaryContainer = cOnKey
+            cOutlineVariant = Palette.amoledOutline(cOnKey)
         }
+
+        // Приглушённый текст (подпись пробела) — отдельная роль темы.
+        cOnKeyVariant = attr(
+            com.google.android.material.R.attr.colorOnSurfaceVariant,
+            Palette.blend(cOnKey, cSurface, 0.30f)
+        )
     }
 
     private fun attr(id: Int, fallback: Int): Int {
@@ -353,20 +358,6 @@ class MoggedKeyboardService : InputMethodService() {
             fallback
         }
     }
-
-    private fun blend(base: Int, over: Int, amount: Float): Int {
-        val a = amount.coerceIn(0f, 1f)
-        return Color.rgb(
-            (Color.red(base) * (1 - a) + Color.red(over) * a).roundToInt(),
-            (Color.green(base) * (1 - a) + Color.green(over) * a).roundToInt(),
-            (Color.blue(base) * (1 - a) + Color.blue(over) * a).roundToInt()
-        )
-    }
-
-    private fun withAlpha(color: Int, alpha: Float): Int = Color.argb(
-        (alpha.coerceIn(0f, 1f) * 255).roundToInt(),
-        Color.red(color), Color.green(color), Color.blue(color)
-    )
 
     private var builtSignature: String? = null
     private val holders = mutableListOf<KeyHolder>()
@@ -429,6 +420,7 @@ class MoggedKeyboardService : InputMethodService() {
         append(numberRow).append('/').append(showHints).append('/')
         append(previewOn).append('/').append(isSensitive).append('/')
         append(keyRadiusDp).append('/').append(selTheme).append('/')
+        append(dynamicColor).append('/')
         append(langKeyOn).append('/').append(keyOutline).append('/')
         append(fontScale).append('/')
         append(contentWidth()).append('/').append(keyboardHeight()).append('/')
@@ -497,7 +489,7 @@ class MoggedKeyboardService : InputMethodService() {
             hint = TextView(ctx).apply {
                 text = def.hint
                 textSize = hintSize()
-                setTextColor(withAlpha(colorFor(def), 0.55f))
+                setTextColor(Palette.withAlpha(colorFor(def), 0.55f))
                 gravity = Gravity.TOP or Gravity.END
                 includeFontPadding = false
                 setPadding(0, dp(4), dp(5), 0)
@@ -527,14 +519,16 @@ class MoggedKeyboardService : InputMethodService() {
 
         // Фон меняем в самом drawable: смена Shift не трогает разметку.
         val ripple = holder.frame.background as? RippleDrawable
-        (ripple?.getDrawable(0) as? GradientDrawable)?.setColor(backgroundFor(def))
+        val background = backgroundFor(def)
+        (ripple?.getDrawable(0) as? GradientDrawable)?.setColor(background)
+        ripple?.setColor(ColorStateList.valueOf(Palette.ripple(background, cPrimary, cOnPrimary)))
 
         holder.text.text = label(def)
         holder.text.textSize = sizeFor(def)
         holder.text.setTextColor(fg)
         holder.text.typeface = letterTypeface(def)
 
-        holder.hint?.setTextColor(withAlpha(fg, 0.55f))
+        holder.hint?.setTextColor(Palette.withAlpha(fg, 0.55f))
 
         holder.icon?.let { view ->
             view.setImageResource(iconFor(def))
@@ -722,7 +716,12 @@ class MoggedKeyboardService : InputMethodService() {
                             }
                         }
                         MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                            if (Gestures.movedEnough(
+                            // Только в режиме курсора: шаг каретки — 12 dp,
+                            // всё меньшее остаётся обычным нажатием. В режиме
+                            // языка свайп уже отмечен в ACTION_MOVE, а лёгкое
+                            // дрожание пальца не должно съедать пробел.
+                            if (spaceSwipe == SpaceSwipe.CURSOR &&
+                                Gestures.movedEnough(
                                     event.rawX - downX,
                                     event.rawY - downY,
                                     density
@@ -828,7 +827,8 @@ class MoggedKeyboardService : InputMethodService() {
             cornerRadius = radius
             setColor(Color.WHITE)
         }
-        return RippleDrawable(ColorStateList.valueOf(cRipple), content, mask)
+        val ripple = Palette.ripple(color, cPrimary, cOnPrimary)
+        return RippleDrawable(ColorStateList.valueOf(ripple), content, mask)
     }
 
     // ── предпросмотр и альтернативы ──────────────────────────
@@ -1138,7 +1138,7 @@ class MoggedKeyboardService : InputMethodService() {
 
     private fun colorFor(def: Key): Int = when (def) {
         is Key.Char -> cOnKey
-        Key.Space -> withAlpha(cOnKey, 0.60f)
+        Key.Space -> cOnKeyVariant
         Key.Enter -> cOnPrimary
         Key.Shift -> when (shift) {
             ShiftState.OFF -> cOnSecondaryContainer
@@ -1157,7 +1157,8 @@ class MoggedKeyboardService : InputMethodService() {
         Key.Shift, Key.Backspace, Key.Enter -> 1.6f
         Key.ToSymbols, Key.ToSymbols2, Key.ToLetters -> 1.6f
         Key.LangKey -> 1.3f
-        Key.Space -> 4f
+        // Без кнопки смены языка пробел занимает её место.
+        Key.Space -> 4f + (if (langKeyOn) 0f else 1.3f)
         is Key.Char -> 1f
     }
 
@@ -1321,8 +1322,10 @@ class MoggedKeyboardService : InputMethodService() {
 
     // ── тактильный отклик ────────────────────────────────────
     private fun tap(strongKey: Boolean = false) {
-        // Нажатие на любую клавишу закрывает меню альтернатив.
+        // Нажатие на любую клавишу закрывает меню альтернатив
+        // и мини-панель одной руки.
         dismissAlternatives()
+        dismissOneHandPanel()
         vibrate(strongKey)
         if (soundOn) clickSound?.play(soundVolume.toFloat() / 100f)
     }
@@ -1436,6 +1439,7 @@ class MoggedKeyboardService : InputMethodService() {
         // но состояние ввода (shift, caps, страница) не теряем.
         keepStateOnce = true
         builtTheme = null
+        builtDynamic = null
         root?.requestLayout()
     }
 
@@ -1461,7 +1465,7 @@ class MoggedKeyboardService : InputMethodService() {
         }
 
         // Настройки или тема поменялись, пока клавиатура была скрыта.
-        if (root != null && builtTheme != selTheme) {
+        if (root != null && (builtTheme != selTheme || builtDynamic != dynamicColor)) {
             setInputView(buildInputView())
             return
         }
