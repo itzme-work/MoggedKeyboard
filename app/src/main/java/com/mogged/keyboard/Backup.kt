@@ -27,7 +27,8 @@ data class Settings(
     val keyFontScale: Int = 100,
     val releaseHaptic: Boolean = false,
     val customHapticDuration: Int = 24,
-    val oneHandPanel: Boolean = true
+    val oneHandPanel: Boolean = true,
+    val dynamicColor: Boolean = true
 )
 
 /**
@@ -69,7 +70,8 @@ object Backup {
         keyFontScale = 100,
         releaseHaptic = false,
         customHapticDuration = 24,
-        oneHandPanel = true
+        oneHandPanel = true,
+        dynamicColor = true
     )
 
     private val THEMES = setOf("system", "light", "dark", "amoled")
@@ -102,7 +104,8 @@ object Backup {
         keyFontScale = prefs.keyFontScale,
         releaseHaptic = prefs.releaseHaptic,
         customHapticDuration = prefs.customHapticDuration,
-        oneHandPanel = prefs.oneHandPanel
+        oneHandPanel = prefs.oneHandPanel,
+        dynamicColor = prefs.dynamicColor
     )
 
     fun applyTo(prefs: Prefs, settings: Settings) {
@@ -130,6 +133,7 @@ object Backup {
         prefs.releaseHaptic = settings.releaseHaptic
         prefs.customHapticDuration = settings.customHapticDuration
         prefs.oneHandPanel = settings.oneHandPanel
+        prefs.dynamicColor = settings.dynamicColor
     }
 
     fun toJson(settings: Settings): String = JSONObject().apply {
@@ -164,6 +168,7 @@ object Backup {
         put("releaseHaptic", settings.releaseHaptic)
         put("customHapticDuration", clamp(settings.customHapticDuration, 5, 60))
         put("oneHandPanel", settings.oneHandPanel)
+        put("dynamicColor", settings.dynamicColor)
     }.toString(2)
 
     /** null — это не наша копия или файл повреждён. */
@@ -205,7 +210,8 @@ object Backup {
             customHapticDuration = clamp(
                 json.optInt("customHapticDuration", DEFAULT.customHapticDuration), 5, 60
             ),
-            oneHandPanel = json.optBoolean("oneHandPanel", DEFAULT.oneHandPanel)
+            oneHandPanel = json.optBoolean("oneHandPanel", DEFAULT.oneHandPanel),
+            dynamicColor = json.optBoolean("dynamicColor", DEFAULT.dynamicColor)
         )
     }
 
