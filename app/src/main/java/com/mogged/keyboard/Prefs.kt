@@ -40,6 +40,53 @@ class Prefs(context: Context) {
         get() = store.getBoolean("dynamic_color", true)
         set(value) = store.edit().putBoolean("dynamic_color", value).apply()
 
+    /** Акцент: auto, id готового цвета или #RRGGBB. */
+    var accent: String
+        get() = store.getString("accent", Look.ACCENT_AUTO) ?: Look.ACCENT_AUTO
+        set(value) = store.edit().putString("accent", value).apply()
+
+    /** Контраст подписей: standard, medium или high. */
+    var contrast: String
+        get() = Contrast.parse(store.getString("contrast", "standard")).key
+        set(value) = store.edit().putString("contrast", Contrast.parse(value).key).apply()
+
+    /** Выбранный пресет темы или custom, если настройки меняли вручную. */
+    var preset: String
+        get() = store.getString("preset", Look.PRESET_CUSTOM) ?: Look.PRESET_CUSTOM
+        set(value) = store.edit().putString("preset", value).apply()
+
+    /** Форма клавиш: rounded, square, pill или flower. */
+    var shape: String
+        get() = KeyShape.key(KeyShape.parse(store.getString("shape", "rounded")))
+        set(value) = store.edit().putString("shape", KeyShape.key(KeyShape.parse(value))).apply()
+
+    /** Радиус функциональных клавиш в dp. */
+    var funcRadius: Int
+        get() = store.getInt("func_radius", 17).coerceIn(0, 28)
+        set(value) = store.edit().putInt("func_radius", value.coerceIn(0, 28)).apply()
+
+    /** Тень клавиш в dp, 0..4. */
+    var elevation: Int
+        get() = store.getInt("elevation", 0).coerceIn(0, 4)
+        set(value) = store.edit().putInt("elevation", value.coerceIn(0, 4)).apply()
+
+    /** Фон клавиатуры: solid или gradient. */
+    var background: String
+        get() = store.getString("background", "solid") ?: "solid"
+        set(value) = store.edit().putString(
+            "background", if (value == "gradient") "gradient" else "solid"
+        ).apply()
+
+    /** Прозрачность клавиш, 0..100. */
+    var keyAlpha: Int
+        get() = store.getInt("key_alpha", 100).coerceIn(0, 100)
+        set(value) = store.edit().putInt("key_alpha", value.coerceIn(0, 100)).apply()
+
+    /** Пружинное нажатие и всплывающая клавиша. */
+    var animations: Boolean
+        get() = store.getBoolean("animations", true)
+        set(value) = store.edit().putBoolean("animations", value).apply()
+
     /** Радиус клавиш в dp. */
     var keyRadius: Int
         get() = store.getInt("key_radius", 11)
