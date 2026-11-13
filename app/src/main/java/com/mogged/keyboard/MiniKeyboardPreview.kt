@@ -241,9 +241,16 @@ class MiniKeyboardPreview @JvmOverloads constructor(
     }
 
     private fun colors(preset: Preset?): PaintSet {
+        // Пресет показывает собственный вид — у него стандартный контраст.
+        // Живой предпросмотр повторяет клавиатуру, поэтому берёт выбранный.
+        val target = if (preset != null) {
+            Contrast.STANDARD.target
+        } else {
+            Contrast.parse(prefs.contrast).target
+        }
         if (preset != null) {
             val dark = prefs.theme == "dark" || prefs.theme == "amoled"
-            val roles = Look.roles(preset.accent, dark)
+            val roles = Look.roles(preset.accent, dark, target)
             return PaintSet(
                 surface = roles.surface,
                 letterBg = roles.surfaceContainerHigh,
@@ -301,7 +308,7 @@ class MiniKeyboardPreview @JvmOverloads constructor(
         // Выбранный акцент строит палитру из одного цвета — одинаково
         // на всех версиях Android, даже там, где динамических цветов нет.
         Look.seed(prefs.accent)?.let { seed ->
-            val roles = Look.roles(seed, darkTheme())
+            val roles = Look.roles(seed, darkTheme(), target)
             letterBg = roles.surfaceContainerHigh
             letterFg = roles.onKey
             functionBg = roles.secondaryContainer
