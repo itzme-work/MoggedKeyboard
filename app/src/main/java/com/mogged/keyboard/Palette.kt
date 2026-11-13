@@ -40,6 +40,69 @@ object Palette {
         if (background == primary) withAlpha(onPrimary, 0.22f)
         else withAlpha(primary, 0.16f)
 
+    // ── контраст и форма ─────────────────────────────────────
+
+    /** Относительная яркость по WCAG. */
+    fun luminance(color: Int): Double {
+        fun channel(value: Int): Double {
+            val c = value.coerceIn(0, 255) / 255.0
+            return if (c <= 0.03928) c / 12.92
+            else Math.pow((c + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * channel(red(color)) +
+            0.7152 * channel(green(color)) +
+            0.0722 * channel(blue(color))
+    }
+
+    /** Контраст двух цветов: 1..21. */
+    fun contrast(first: Int, second: Int): Double {
+        val a = luminance(first)
+        val b = luminance(second)
+        val light = maxOf(a, b)
+        val dark = minOf(a, b)
+        return (light + 0.05) / (dark + 0.05)
+    }
+
+    /** Чёрный или белый — тот, что контрастнее к фону. */
+    fun onColor(background: Int): Int {
+        val black = 0xFF000000.toInt()
+        val white = 0xFFFFFFFF.toInt()
+        return if (contrast(black, background) >= contrast(white, background)) black else white
+    }
+
+    /**
+     * Подпись читается на фоне: если исходный цвет не дотягивает до порога,
+     * берётся чёрный или белый — тот, что даёт больший контраст.
+     */
+    fun readable(foreground: Int, background: Int, target: Double): Int {
+        if (contrast(foreground, background) >= target) return foreground
+        val black = 0xFF000000.toInt()
+        val white = 0xFFFFFFFF.toInt()
+        return if (contrast(black, background) >= contrast(white, background)) black else white
+    }
+
+    /**
+     * Углы клавиши для GradientDrawable: [TLx, TLy, TRx, TRy, BRx, BRy, BLx, BLy].
+     * Пилюля и квадрат не зависят от радиуса из настроек.
+     */
+    fun radii(shape: KeyShape, radiusPx: Float): FloatArray {
+        val r = radiusPx.coerceAtLeast(0f)
+        return when (shape) {
+            KeyShape.SQUARE -> FloatArray(8)
+            KeyShape.PILL -> FloatArray(8) { 10000f }
+            KeyShape.FLOWER -> floatArrayOf(
+                r * 2.2f, r * 0.7f,
+                r * 0.7f, r * 2.2f,
+                r * 2.2f, r * 0.7f,
+                r * 0.7f, r * 2.2f
+            )
+            KeyShape.ROUNDED -> FloatArray(8) { r }
+        }
+    }
+
+    /** Вертикальный градиент фона: от акцента к поверхности. */
+    fun backgroundTop(surface: Int, primary: Int): Int = blend(surface, primary, 0.18f)
+
     // ── AMOLED ───────────────────────────────────────────────
     // Фон остаётся чёрным, поверхности — почти чёрными, а акценты
     // (Enter, Shift, функциональные клавиши) берутся из палитры.
