@@ -1,7 +1,6 @@
 package com.mogged.keyboard
 
 import android.content.Intent
-import android.content.res.ColorStateList
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
@@ -598,7 +597,7 @@ class MainActivity : AppCompatActivity() {
             val card = row.getChildAt(i) as? MaterialCardView ?: continue
             val active = card.tag == prefs.preset
             card.strokeWidth = dp(if (active) 2 else 1)
-            card.strokeColor = ColorStateList.valueOf(if (active) selected else idle)
+            card.strokeColor = if (active) selected else idle
         }
     }
 
