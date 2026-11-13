@@ -70,11 +70,11 @@ class Prefs(context: Context) {
         get() = store.getInt("elevation", 0).coerceIn(0, 4)
         set(value) = store.edit().putInt("elevation", value.coerceIn(0, 4)).apply()
 
-    /** Фон клавиатуры: solid или gradient. */
+    /** Фон клавиатуры: solid, gradient или свой рисунок. */
     var background: String
         get() = store.getString("background", "solid") ?: "solid"
         set(value) = store.edit().putString(
-            "background", if (value == "gradient") "gradient" else "solid"
+            "background", if (value == "gradient" || value == "image") value else "solid"
         ).apply()
 
     /** Прозрачность клавиш, 0..100. */
@@ -192,4 +192,56 @@ class Prefs(context: Context) {
     var onboarded: Boolean
         get() = store.getBoolean("onboarded", false)
         set(value) = store.edit().putBoolean("onboarded", value).apply()
+
+    /** Панель инструментов над клавишами. */
+    var panelOn: Boolean
+        get() = store.getBoolean("panel_on", false)
+        set(value) = store.edit().putBoolean("panel_on", value).apply()
+
+    /** Кнопки панели по порядку. */
+    var panelActions: List<String>
+        get() = Panel.parse(store.getString("panel_actions", Panel.DEFAULT))
+        set(value) = store.edit().putString("panel_actions", Panel.format(value)).apply()
+
+    /** Шаблоны-сокращения; в настройках лежат строкой JSON. */
+    var templates: List<Template>
+        get() = Templates.parse(store.getString("templates", "[]"))
+        set(value) = store.edit().putString("templates", Templates.toJson(value)).apply()
+
+    /** Умная пунктуация. */
+    var smartQuotes: Boolean
+        get() = store.getBoolean("smart_quotes", true)
+        set(value) = store.edit().putBoolean("smart_quotes", value).apply()
+
+    var smartDash: Boolean
+        get() = store.getBoolean("smart_dash", true)
+        set(value) = store.edit().putBoolean("smart_dash", value).apply()
+
+    var smartEllipsis: Boolean
+        get() = store.getBoolean("smart_ellipsis", true)
+        set(value) = store.edit().putBoolean("smart_ellipsis", value).apply()
+
+    var smartSpace: Boolean
+        get() = store.getBoolean("smart_space", false)
+        set(value) = store.edit().putBoolean("smart_space", value).apply()
+
+    /** Режим инкогнито: без шаблонов и умной пунктуации, со значком. */
+    var incognito: Boolean
+        get() = store.getBoolean("incognito", false)
+        set(value) = store.edit().putBoolean("incognito", value).apply()
+
+    /** Своя картинка фона: в резервную копию уходит только этот флаг. */
+    var backgroundImage: Boolean
+        get() = store.getBoolean("bg_image", false)
+        set(value) = store.edit().putBoolean("bg_image", value).apply()
+
+    /** Затемнение картинки, 0..80%. */
+    var backgroundDim: Int
+        get() = store.getInt("bg_dim", 40).coerceIn(0, 80)
+        set(value) = store.edit().putInt("bg_dim", value.coerceIn(0, 80)).apply()
+
+    /** Размытие картинки (Android 12 и новее). */
+    var backgroundBlur: Boolean
+        get() = store.getBoolean("bg_blur", false)
+        set(value) = store.edit().putBoolean("bg_blur", value).apply()
 }
