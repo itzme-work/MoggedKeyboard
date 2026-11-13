@@ -37,7 +37,18 @@ data class Settings(
     val elevation: Int = 0,
     val background: String = "solid",
     val keyAlpha: Int = 100,
-    val animations: Boolean = true
+    val animations: Boolean = true,
+    val panelOn: Boolean = false,
+    val panelActions: String = Panel.DEFAULT,
+    val templates: String = "[]",
+    val smartQuotes: Boolean = true,
+    val smartDash: Boolean = true,
+    val smartEllipsis: Boolean = true,
+    val smartSpace: Boolean = false,
+    val incognito: Boolean = false,
+    val backgroundImage: Boolean = false,
+    val backgroundDim: Int = 40,
+    val backgroundBlur: Boolean = false
 )
 
 /**
@@ -89,7 +100,7 @@ object Backup {
     private val SWIPES = setOf("lang", "cursor", "off")
     private val CONTRASTS = setOf("standard", "medium", "high")
     private val SHAPES = setOf("rounded", "square", "pill", "flower")
-    private val BACKGROUNDS = setOf("solid", "gradient")
+    private val BACKGROUNDS = setOf("solid", "gradient", "image")
     private val PRESETS = Look.presets.map { it.id }.toSet() + Look.PRESET_CUSTOM
 
     /** Снимок текущих настроек. onboarded и check_updates сюда не входят. */
@@ -127,7 +138,18 @@ object Backup {
         elevation = prefs.elevation,
         background = prefs.background,
         keyAlpha = prefs.keyAlpha,
-        animations = prefs.animations
+        animations = prefs.animations,
+        panelOn = prefs.panelOn,
+        panelActions = Panel.format(prefs.panelActions),
+        templates = Templates.toJson(prefs.templates),
+        smartQuotes = prefs.smartQuotes,
+        smartDash = prefs.smartDash,
+        smartEllipsis = prefs.smartEllipsis,
+        smartSpace = prefs.smartSpace,
+        incognito = prefs.incognito,
+        backgroundImage = prefs.backgroundImage,
+        backgroundDim = prefs.backgroundDim,
+        backgroundBlur = prefs.backgroundBlur
     )
 
     fun applyTo(prefs: Prefs, settings: Settings) {
@@ -165,6 +187,17 @@ object Backup {
         prefs.background = settings.background
         prefs.keyAlpha = settings.keyAlpha
         prefs.animations = settings.animations
+        prefs.panelOn = settings.panelOn
+        prefs.panelActions = Panel.parse(settings.panelActions)
+        prefs.templates = Templates.parse(settings.templates)
+        prefs.smartQuotes = settings.smartQuotes
+        prefs.smartDash = settings.smartDash
+        prefs.smartEllipsis = settings.smartEllipsis
+        prefs.smartSpace = settings.smartSpace
+        prefs.incognito = settings.incognito
+        prefs.backgroundImage = settings.backgroundImage
+        prefs.backgroundDim = settings.backgroundDim
+        prefs.backgroundBlur = settings.backgroundBlur
     }
 
     fun toJson(settings: Settings): String = JSONObject().apply {
@@ -210,6 +243,18 @@ object Backup {
         put("background", pick(settings.background, BACKGROUNDS, DEFAULT.background))
         put("keyAlpha", clamp(settings.keyAlpha, 0, 100))
         put("animations", settings.animations)
+
+        put("panelOn", settings.panelOn)
+        put("panelActions", pickActions(settings.panelActions))
+        put("templates", Templates.toJson(Templates.parse(settings.templates)))
+        put("smartQuotes", settings.smartQuotes)
+        put("smartDash", settings.smartDash)
+        put("smartEllipsis", settings.smartEllipsis)
+        put("smartSpace", settings.smartSpace)
+        put("incognito", settings.incognito)
+        put("backgroundImage", settings.backgroundImage)
+        put("backgroundDim", clamp(settings.backgroundDim, 0, 80))
+        put("backgroundBlur", settings.backgroundBlur)
     }.toString(2)
 
     /** null — это не наша копия или файл повреждён. */
@@ -261,9 +306,26 @@ object Backup {
             elevation = clamp(json.optInt("elevation", DEFAULT.elevation), 0, 4),
             background = pick(json.optString("background"), BACKGROUNDS, DEFAULT.background),
             keyAlpha = clamp(json.optInt("keyAlpha", DEFAULT.keyAlpha), 0, 100),
-            animations = json.optBoolean("animations", DEFAULT.animations)
+            animations = json.optBoolean("animations", DEFAULT.animations),
+            panelOn = json.optBoolean("panelOn", DEFAULT.panelOn),
+            panelActions = pickActions(json.optString("panelActions", DEFAULT.panelActions)),
+            templates = Templates.toJson(
+                Templates.parse(json.optString("templates", DEFAULT.templates))
+            ),
+            smartQuotes = json.optBoolean("smartQuotes", DEFAULT.smartQuotes),
+            smartDash = json.optBoolean("smartDash", DEFAULT.smartDash),
+            smartEllipsis = json.optBoolean("smartEllipsis", DEFAULT.smartEllipsis),
+            smartSpace = json.optBoolean("smartSpace", DEFAULT.smartSpace),
+            incognito = json.optBoolean("incognito", DEFAULT.incognito),
+            backgroundImage = json.optBoolean("backgroundImage", DEFAULT.backgroundImage),
+            backgroundDim = clamp(json.optInt("backgroundDim", DEFAULT.backgroundDim), 0, 80),
+            backgroundBlur = json.optBoolean("backgroundBlur", DEFAULT.backgroundBlur)
         )
     }
+
+    /** Список кнопок панели: только известные, без повторов. */
+    private fun pickActions(value: String?): String =
+        Panel.format(if (value.isNullOrBlank()) Panel.ACTIONS else Panel.parse(value))
 
     private fun accentValue(value: String): String =
         if (value == Look.ACCENT_AUTO || Look.accent(value) != null || Look.parseHex(value) != null) {
