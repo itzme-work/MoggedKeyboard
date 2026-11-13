@@ -47,6 +47,35 @@ class PaletteTest {
     }
 
     @Test
+    fun contrastAndReadableFollowWcag() {
+        assertEquals(21.0, Palette.contrast(black, white), 0.01)
+        assertEquals(1.0, Palette.contrast(black, black), 0.01)
+        // Подпись, которая уже читается, остаётся как есть.
+        assertEquals(white, Palette.readable(white, black, 4.5))
+        assertEquals(black, Palette.readable(black, white, 4.5))
+        // А бледная заменяется на ту, что дотягивает до порога.
+        val pale = 0xFFBBBBBB.toInt()
+        val fixed = Palette.readable(pale, white, 4.5)
+        assertTrue(Palette.contrast(fixed, white) >= 4.5)
+    }
+
+    @Test
+    fun onColorPicksMoreContrastingSide() {
+        assertEquals(black, Palette.onColor(white))
+        assertEquals(white, Palette.onColor(black))
+        assertEquals(white, Palette.onColor(0xFF1C1B1F.toInt()))
+    }
+
+    @Test
+    fun backgroundGradientStartsWithAccent() {
+        val surface = 0xFFFEF7FF.toInt()
+        val primary = 0xFF6750A4.toInt()
+        val top = Palette.backgroundTop(surface, primary)
+        assertTrue(Palette.contrast(top, surface) > 1.0)
+        assertEquals(surface, Palette.blend(surface, primary, 0f))
+    }
+
+    @Test
     fun amoledSurfacesAreNearBlackButNotEqual() {
         val surface = Palette.amoledSurface(0xFFE6E1E5.toInt())
         val highest = Palette.amoledHighest(0xFFE6E1E5.toInt())
