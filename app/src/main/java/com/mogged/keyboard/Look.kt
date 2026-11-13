@@ -128,45 +128,49 @@ object Look {
      *
      * Простые смеси вместо HCT: цветов достаточно, а поведение одинаково
      * на любой версии Android и проверяется тестами.
+     *
+     * [target] — выбранный контраст подписей. Подпись и фон каждой роли
+     * подбираются парой, поэтому средний и высокий уровень достижимы
+     * и на полутоновых акцентах (Enter, Shift, функциональные клавиши).
      */
-    fun roles(seed: Int, dark: Boolean): Roles {
-        val black = 0xFF000000.toInt()
-        val white = 0xFFFFFFFF.toInt()
+    fun roles(seed: Int, dark: Boolean, target: Double = Contrast.STANDARD.target): Roles {
         val base = if (dark) 0xFF141218.toInt() else 0xFFFEF7FF.toInt()
 
         val surface = Palette.blend(base, seed, if (dark) 0.06f else 0.03f)
-        val letter = Palette.blend(surface, seed, if (dark) 0.16f else 0.09f)
-        val highest = Palette.blend(surface, seed, if (dark) 0.24f else 0.14f)
-        val function = Palette.blend(surface, seed, if (dark) 0.34f else 0.20f)
-        val primary = if (dark) {
-            Palette.blend(seed, white, 0.45f)
+        val letterBase = Palette.blend(surface, seed, if (dark) 0.16f else 0.09f)
+        val highestBase = Palette.blend(surface, seed, if (dark) 0.24f else 0.14f)
+        val functionBase = Palette.blend(surface, seed, if (dark) 0.34f else 0.20f)
+        val primaryBase = if (dark) {
+            Palette.blend(seed, 0xFFFFFFFF.toInt(), 0.45f)
         } else {
-            Palette.blend(seed, black, 0.06f)
+            Palette.blend(seed, 0xFF000000.toInt(), 0.06f)
         }
-        val container = Palette.blend(surface, seed, if (dark) 0.30f else 0.18f)
+        val containerBase = Palette.blend(surface, seed, if (dark) 0.30f else 0.18f)
 
-        val onLetter = Palette.onColor(letter)
+        val letter = Palette.pair(Palette.onColor(letterBase), letterBase, target)
+        val hint = Palette.readable(
+            Palette.blend(letter.first, letter.second, 0.35f), letter.second, target
+        )
+        val space = Palette.pair(hint, highestBase, target)
+        val function = Palette.pair(Palette.onColor(functionBase), functionBase, target)
+        val primary = Palette.pair(Palette.onColor(primaryBase), primaryBase, target)
+        val container = Palette.pair(Palette.onColor(containerBase), containerBase, target)
+
         return Roles(
             surface = surface,
-            onKey = Palette.readable(onLetter, letter, Contrast.STANDARD.target),
-            onKeyVariant = Palette.readable(
-                Palette.blend(onLetter, letter, 0.35f), letter, Contrast.STANDARD.target
-            ),
-            surfaceContainerHigh = letter,
-            surfaceContainerHighest = highest,
-            secondaryContainer = function,
-            onSecondaryContainer = Palette.readable(
-                Palette.onColor(function), function, Contrast.STANDARD.target
-            ),
-            primary = primary,
-            onPrimary = Palette.readable(
-                Palette.onColor(primary), primary, Contrast.STANDARD.target
-            ),
-            primaryContainer = container,
-            onPrimaryContainer = Palette.readable(
-                Palette.onColor(container), container, Contrast.STANDARD.target
-            ),
-            outlineVariant = Palette.blend(letter, Palette.onColor(letter), 0.30f)
+            onKey = letter.first,
+            onKeyVariant = space.first,
+            surfaceContainerHigh = letter.second,
+            surfaceContainerHighest = space.second,
+            secondaryContainer = function.second,
+            onSecondaryContainer = function.first,
+            primary = primary.second,
+            onPrimary = primary.first,
+            primaryContainer = container.second,
+            onPrimaryContainer = container.first,
+            outlineVariant = Palette.blend(
+                letter.second, Palette.onColor(letter.second), 0.30f
+            )
         )
     }
 }
