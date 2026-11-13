@@ -67,7 +67,7 @@
     <string name="theme_dark">Тёмная</string>
     <string name="theme_amoled">AMOLED (чёрная)</string>
     <string name="pref_dynamic">Динамические цвета</string>
-    <string name="dynamic_hint">Палитра из обоев для приложения и клавиатуры. На Android 12 и новее; на Android 14+ учитывается системный контраст. Выключено — базовая палитра Material 3.</string>
+    <string name="dynamic_hint">Палитра из обоев для приложения и клавиатуры. На Android 12 и новее; на Android 14+ учитывается системный контраст. Выключено — базовая палитра Material 3 или выбранный акцент.</string>
     <string name="dynamic_unavailable">Динамические цвета появятся на Android 12 и новее; сейчас действует базовая палитра Material 3.</string>
     <string name="radius_value">Радиус клавиш: %1$d dp</string>
     <string name="width_value">Ширина клавиатуры: %1$d%%</string>
@@ -91,6 +91,32 @@
     <string name="pref_onehand_panel">Долгое нажатие на Enter — панель одной руки</string>
     <string name="font_scale_label">Масштаб шрифта клавиш</string>
     <string name="font_scale_value_short">%1$d%%</string>
+
+    <string name="look_presets_title">Пресеты темы</string>
+    <string name="look_accent_title">Акцент</string>
+    <string name="accent_auto">Из обоев</string>
+    <string name="accent_custom">Свой цвет…</string>
+    <string name="accent_hint">Акцент перекрашивает клавиатуру на любой версии Android. Приложение берёт его на Android 12 и новее; ниже действует базовая палитра Material 3.</string>
+    <string name="accent_dialog_title">Свой цвет</string>
+    <string name="accent_apply">Применить</string>
+    <string name="color_red">Красный</string>
+    <string name="color_green">Зелёный</string>
+    <string name="color_blue">Синий</string>
+    <string name="look_contrast_title">Контраст подписей</string>
+    <string name="contrast_standard">Стандартный</string>
+    <string name="contrast_medium">Средний</string>
+    <string name="contrast_high">Высокий</string>
+    <string name="look_shape_title">Форма клавиш</string>
+    <string name="shape_rounded">Скруглённая</string>
+    <string name="shape_square">Квадрат</string>
+    <string name="shape_pill">Таблетка</string>
+    <string name="shape_flower">Цветок</string>
+    <string name="func_radius_label">Радиус функциональных клавиш</string>
+    <string name="elevation_label">Тень клавиш</string>
+    <string name="key_alpha_label">Прозрачность клавиш</string>
+    <string name="key_alpha_value_short">%1$d%%</string>
+    <string name="pref_gradient">Градиент от акцента</string>
+    <string name="pref_animations">Анимации нажатия</string>
 
     <string name="vibration_value">Сила вибрации: %1$d%%</string>
     <string name="vibration_legacy_hint">Сила действует на Android 8–9. На Android 10+ характер задают системные эффекты.</string>
@@ -138,7 +164,14 @@
 
     <string name="changelog_title">Что нового</string>
 
+    <string name="sandbox_title">Песочница</string>
+    <string name="sandbox_hint">Проверьте клавиатуру на практике: поле ниже сразу открывает её с текущими настройками. Меняйте оформление в разделе «Вид» и возвращайтесь сюда.</string>
+    <string name="sandbox_field_hint">Пишите здесь…</string>
+    <string name="sandbox_show">Показать клавиатуру</string>
+    <string name="sandbox_clear">Очистить</string>
+    <string name="sandbox_open">Открыть песочницу</string>
+
     <string name="about_title">О приложении</string>
     <string name="about_version">Версия %1$s (versionCode %2$d)</string>
-    <string name="about_text">Клавиатура работает на устройстве: набранный текст никуда не отправляется. Интернет нужен только для проверки и скачивания обновлений с GitHub — это можно выключить в настройках. Цвета берутся из системной палитры Material You (Android 12+), если включены динамические цвета; иначе действует базовая палитра Material 3. Тему можно выбрать вручную.\n\nДолгое нажатие на букву или знак открывает меню альтернатив: ё, ъ, акценты, валюты. На клавишах видны подсказки, их можно выключить. Кнопка «=&lt;» открывает вторую страницу символов.\n\nСвайп по пробелу настраивается: смена языка, движение курсора по 12 dp или выключен. Долгое нажатие на пробеле всё равно меняет язык. Свайп влево по Backspace стирает слово, удержание — по символу. Долгое нажатие на Enter открывает панель одной руки. Двойной пробел ставит точку и пробел.</string>
+    <string name="about_text">Клавиатура работает на устройстве: набранный текст никуда не отправляется. Интернет нужен только для проверки и скачивания обновлений с GitHub — это можно выключить в настройках. Цвета берутся из системной палитры Material You (Android 12+), если включены динамические цвета; иначе действует базовая палитра Material 3. Акцент выбирается из восьми готовых или задаётся своим цветом: клавиатура строит палитру из него на любой версии Android. Тему можно выбрать вручную.\n\nДолгое нажатие на букву или знак открывает меню альтернатив: ё, ъ, акценты, валюты. На клавишах видны подсказки, их можно выключить. Кнопка «=&lt;» открывает вторую страницу символов.\n\nСвайп по пробелу настраивается: смена языка, движение курсора по 12 dp или выключен. Долгое нажатие на пробеле всё равно меняет язык. Свайп влево по Backspace стирает слово, удержание — по символу. Долгое нажатие на Enter открывает панель одной руки. Двойной пробел ставит точку и пробел.</string>
 </resources>
