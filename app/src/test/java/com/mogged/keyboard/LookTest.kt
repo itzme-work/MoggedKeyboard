@@ -71,6 +71,57 @@ class LookTest {
     }
 
     @Test
+    fun fitContrastFixesSystemAndDynamicPalettes() {
+        // Пары из системной палитры: Enter, Shift и подписи — как их отдаёт тема.
+        val system = systemRoles()
+        for (level in Contrast.values()) {
+            val fitted = Look.fitContrast(system, level.target)
+            val where = level.key
+            assertTrue(
+                "буквы ($where)",
+                Palette.contrast(fitted.onKey, fitted.surfaceContainerHigh) >= level.target
+            )
+            assertTrue(
+                "пробел ($where)",
+                Palette.contrast(fitted.onKeyVariant, fitted.surfaceContainerHighest) >= level.target
+            )
+            assertTrue(
+                "функциональные ($where)",
+                Palette.contrast(fitted.onSecondaryContainer, fitted.secondaryContainer) >= level.target
+            )
+            assertTrue(
+                "Enter ($where)",
+                Palette.contrast(fitted.onPrimary, fitted.primary) >= level.target
+            )
+            assertTrue(
+                "подсказка клавиши ($where)",
+                Palette.contrast(fitted.onPrimaryContainer, fitted.primaryContainer) >= level.target
+            )
+            if (level == Contrast.STANDARD) {
+                // Стандартный уровень ничего не меняет: цвета темы как есть.
+                assertEquals(system, fitted)
+            } else {
+                assertTrue("фон Enter сдвинут ($where)", fitted.primary != system.primary)
+            }
+        }
+    }
+
+    private fun systemRoles(): Roles = Roles(
+        surface = 0xFFFEF7FF.toInt(),
+        onKey = 0xFF1D1B20.toInt(),
+        onKeyVariant = 0xFF49454F.toInt(),
+        surfaceContainerHigh = 0xFFE6E0E9.toInt(),
+        surfaceContainerHighest = 0xFFE6E0E9.toInt(),
+        secondaryContainer = 0xFFE8DEF8.toInt(),
+        onSecondaryContainer = 0xFF4A4458.toInt(),
+        primary = 0xFF6750A4.toInt(),
+        onPrimary = 0xFFFFFFFF.toInt(),
+        primaryContainer = 0xFFEADDFF.toInt(),
+        onPrimaryContainer = 0xFF21005D.toInt(),
+        outlineVariant = 0xFFCAC4D0.toInt()
+    )
+
+    @Test
     fun contrastGrowsWithLevel() {
         assertTrue(Contrast.STANDARD.target < Contrast.MEDIUM.target)
         assertTrue(Contrast.MEDIUM.target < Contrast.HIGH.target)
