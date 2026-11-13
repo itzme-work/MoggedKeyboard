@@ -11,6 +11,9 @@ import kotlin.math.roundToInt
  */
 object Palette {
 
+    private val BLACK = 0xFF000000.toInt()
+    private val WHITE = 0xFFFFFFFF.toInt()
+
     /** Канал цвета 0..255. */
     fun alpha(color: Int): Int = (color ushr 24) and 0xFF
     fun red(color: Int): Int = (color ushr 16) and 0xFF
@@ -64,21 +67,49 @@ object Palette {
     }
 
     /** Чёрный или белый — тот, что контрастнее к фону. */
-    fun onColor(background: Int): Int {
-        val black = 0xFF000000.toInt()
-        val white = 0xFFFFFFFF.toInt()
-        return if (contrast(black, background) >= contrast(white, background)) black else white
-    }
+    fun onColor(background: Int): Int =
+        if (contrast(BLACK, background) >= contrast(WHITE, background)) BLACK else WHITE
 
     /**
      * Подпись читается на фоне: если исходный цвет не дотягивает до порога,
-     * берётся чёрный или белый — тот, что даёт больший контраст.
+     * он плавно сдвигается к чёрному или белому — без скачка в чистый цвет.
      */
     fun readable(foreground: Int, background: Int, target: Double): Int {
         if (contrast(foreground, background) >= target) return foreground
-        val black = 0xFF000000.toInt()
-        val white = 0xFFFFFFFF.toInt()
-        return if (contrast(black, background) >= contrast(white, background)) black else white
+        val ink = onColor(background)
+        // Двадцать шагов по 5%: берём самый мягкий цвет, который дотягивает.
+        for (step in 1..20) {
+            val candidate = blend(foreground, ink, step / 20f)
+            if (contrast(candidate, background) >= target) return candidate
+        }
+        return ink
+    }
+
+    /**
+     * Пара «подпись + фон», дотянутая до порога.
+     *
+     * Сначала подпись плавно сдвигается к чёрному или белому. Если фон
+     * полутоновый (акцентные клавиши), порог так не взять: тогда сдвигается
+     * сам фон — в сторону от подписи, пока контраст не станет достижим.
+     * Поэтому средний и высокий уровни действительно работают, а не просто
+     * красят подпись в чёрный или белый.
+     */
+    fun pair(foreground: Int, background: Int, target: Double): Pair<Int, Int> {
+        val ink = onColor(background)
+        for (step in 0..20) {
+            val candidate = blend(foreground, ink, step / 20f)
+            if (contrast(candidate, background) >= target) return candidate to background
+        }
+
+        // Фон слишком близок к обоим краям: отодвигаем его от подписи.
+        val away = if (ink == WHITE) BLACK else WHITE
+        for (step in 1..50) {
+            val moved = blend(background, away, step / 50f)
+            val label = onColor(moved)
+            if (contrast(label, moved) >= target) return label to moved
+        }
+        // Предел: чёрный фон и белая подпись дают максимум 21:1.
+        return WHITE to BLACK
     }
 
     /**
