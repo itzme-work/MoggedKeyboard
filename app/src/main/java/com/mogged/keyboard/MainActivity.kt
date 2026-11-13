@@ -1,7 +1,9 @@
 package com.mogged.keyboard
 
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -12,27 +14,36 @@ import android.provider.Settings
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.StyleSpan
+import android.view.Gravity
 import android.view.View
+import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.FrameLayout
+import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.widget.NestedScrollView
-import androidx.transition.Fade
 import androidx.transition.TransitionManager
+import com.google.android.material.appbar.AppBarLayout
+import com.google.android.material.appbar.CollapsingToolbarLayout
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButtonToggleGroup
+import com.google.android.material.card.MaterialCardView
 import com.google.android.material.color.DynamicColors
+import com.google.android.material.color.MaterialColors
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.navigation.NavigationBarView
 import com.google.android.material.navigationrail.NavigationRailView
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.slider.Slider
+import com.google.android.material.transition.MaterialSharedAxis
 import java.io.File
 import kotlin.math.roundToInt
 
@@ -48,7 +59,10 @@ class MainActivity : AppCompatActivity() {
         const val KEY_SECTION = "section"
         const val KEY_SCROLL = "scroll"
 
-        const val FADE_MS = 150L
+        const val SHARED_AXIS_MS = 220L
+
+        /** Рейка разделов появляется на широких экранах, от 840dp. */
+        const val RAIL_MIN_WIDTH_DP = 840
 
         val SECTION_TITLES = intArrayOf(
             R.string.sec_home,
@@ -77,6 +91,8 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var prefs: Prefs
 
+    private lateinit var collapsingToolbar: CollapsingToolbarLayout
+    private lateinit var appBar: AppBarLayout
     private lateinit var toolbar: MaterialToolbar
     private lateinit var bottomNav: BottomNavigationView
     private lateinit var navRail: NavigationRailView
@@ -114,11 +130,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Splash Screen API: системный экран запуска до первого кадра.
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
         MoggedApp.applyNightMode(prefs.theme)
+        // Акцент перекрашивает и приложение: опции строятся заново для этого
+        // экрана, поэтому новый акцент виден сразу после recreate().
+        DynamicColors.applyToActivityIfAvailable(this, MoggedApp.dynamicOptions(this))
         setContentView(R.layout.activity_main)
 
+        collapsingToolbar = findViewById(R.id.collapsingToolbar)
+        appBar = findViewById(R.id.appBar)
         toolbar = findViewById(R.id.toolbar)
         bottomNav = findViewById(R.id.bottomNav)
         navRail = findViewById(R.id.navRail)
@@ -127,10 +150,12 @@ class MainActivity : AppCompatActivity() {
         miniPreview = findViewById(R.id.miniPreview)
 
         bindNavigation()
+        bindBack()
         bindStatus()
         bindOnboarding()
         bindSettings()
         bindBackup()
+        bindSandbox()
         bindUpdates()
 
         changelogText = findViewById(R.id.changelogText)
@@ -171,8 +196,8 @@ class MainActivity : AppCompatActivity() {
 
     // ── разделы и навигация ─────────────────────────────────
     private fun bindNavigation() {
-        // На широких экранах нижнюю панель заменяет рейка.
-        val wide = resources.configuration.screenWidthDp >= 600
+        // На широких экранах (от 840dp) нижнюю панель заменяет рейка.
+        val wide = resources.configuration.screenWidthDp >= RAIL_MIN_WIDTH_DP
         navRail.visibility = if (wide) View.VISIBLE else View.GONE
         bottomNav.visibility = if (wide) View.GONE else View.VISIBLE
 
@@ -185,11 +210,33 @@ class MainActivity : AppCompatActivity() {
         navRail.setOnItemSelectedListener(listener)
     }
 
+    /**
+     * Предиктивный жест «назад»: с любого раздела возвращаемся на главную,
+     * а не выходим из приложения сразу. Система сама показывает анимацию.
+     */
+    private fun bindBack() {
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (section != SECTION_HOME) {
+                    showSection(SECTION_HOME)
+                } else {
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
+                    isEnabled = true
+                }
+            }
+        })
+    }
+
     private fun showSection(index: Int, animate: Boolean = true) {
         val target = index.coerceIn(0, SECTION_VIEWS.size - 1)
 
-        if (animate && sectionsReady) {
-            TransitionManager.beginDelayedTransition(sectionHost, Fade().setDuration(FADE_MS))
+        if (animate && sectionsReady && target != section) {
+            // Shared axis: разделы сменяют друг друга вдоль оси X.
+            val forward = target > section
+            val transition = MaterialSharedAxis(MaterialSharedAxis.X, forward)
+                .setDuration(SHARED_AXIS_MS)
+            TransitionManager.beginDelayedTransition(sectionHost, transition)
         }
 
         SECTION_VIEWS.forEachIndexed { i, id ->
@@ -198,7 +245,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         section = target
-        toolbar.title = getString(SECTION_TITLES[target])
+        collapsingToolbar.title = getString(SECTION_TITLES[target])
+        toolbar.title = ""
+        // Новый раздел открывается сверху: заголовок снова большой.
+        appBar.setExpanded(true, animate)
 
         // Отмечаем пункт без вызова слушателей — иначе будет рекурсия.
         bottomNav.menu.findItem(SECTION_IDS[target])?.isChecked = true
@@ -304,6 +354,8 @@ class MainActivity : AppCompatActivity() {
             prefs.keyRadius, R.string.radius_value_short
         ) {
             prefs.keyRadius = it
+            prefs.preset = Look.PRESET_CUSTOM
+            refreshPresetSelection()
             miniPreview.refresh()
         }
 
@@ -342,6 +394,44 @@ class MainActivity : AppCompatActivity() {
         bindOneHand()
         bindHaptics()
         bindSpaceSwipe()
+        bindPresets()
+        bindAccent()
+        bindContrast()
+        bindShape()
+
+        setupSlider(
+            R.id.sldFuncRadius, R.id.funcRadiusValue, 0f, 28f, 1f,
+            prefs.funcRadius, R.string.radius_value_short
+        ) {
+            prefs.funcRadius = it
+            prefs.preset = Look.PRESET_CUSTOM
+            refreshPresetSelection()
+            miniPreview.refresh()
+        }
+
+        setupSlider(
+            R.id.sldElevation, R.id.elevationValue, 0f, 4f, 1f,
+            prefs.elevation, R.string.radius_value_short
+        ) {
+            prefs.elevation = it
+            prefs.preset = Look.PRESET_CUSTOM
+            refreshPresetSelection()
+            miniPreview.refresh()
+        }
+
+        setupSlider(
+            R.id.sldKeyAlpha, R.id.keyAlphaValue, 0f, 100f, 5f,
+            prefs.keyAlpha, R.string.key_alpha_value_short
+        ) {
+            prefs.keyAlpha = it
+            miniPreview.refresh()
+        }
+
+        bindSwitch(R.id.swGradient, prefs.background == "gradient") {
+            prefs.background = if (it) "gradient" else "solid"
+            miniPreview.refresh()
+        }
+        bindSwitch(R.id.swAnimations, prefs.animations) { prefs.animations = it }
 
         findViewById<Button>(R.id.btnResetLook).setOnClickListener {
             confirmReset { resetLook() }
@@ -446,6 +536,257 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
+
+    // ── оформление: пресеты, акцент, контраст, форма ─────────
+    /** Карточки пресетов: живые мини-предпросмотры. */
+    private fun bindPresets() {
+        val row = findViewById<LinearLayout>(R.id.presetRow)
+        row.removeAllViews()
+
+        val onSurface = MaterialColors.getColor(
+            this, com.google.android.material.R.attr.colorOnSurface, 0
+        )
+        Look.presets.forEach { preset ->
+            val card = MaterialCardView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(dp(120), ViewGroup.LayoutParams.WRAP_CONTENT)
+                    .apply { marginEnd = dp(8) }
+                radius = dp(20).toFloat()
+                cardElevation = 0f
+                isClickable = true
+                isFocusable = true
+                contentDescription = preset.name
+                tag = preset.id
+                setOnClickListener { applyPreset(preset) }
+            }
+            val column = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(6), dp(6), dp(6), dp(6))
+            }
+            column.addView(
+                MiniKeyboardPreview(this).apply {
+                    presetOverride = preset
+                    layoutParams = LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, dp(58)
+                    )
+                }
+            )
+            column.addView(
+                TextView(this).apply {
+                    text = preset.name
+                    textSize = 13f
+                    gravity = Gravity.CENTER
+                    setTextColor(onSurface)
+                    setPadding(0, dp(4), 0, dp(2))
+                }
+            )
+            card.addView(column)
+            row.addView(card)
+        }
+        refreshPresetSelection()
+    }
+
+    /** Выделяет карточку выбранного пресета; ручные изменения снимают выбор. */
+    private fun refreshPresetSelection() {
+        val row = findViewById<LinearLayout>(R.id.presetRow)
+        val selected = MaterialColors.getColor(
+            this, com.google.android.material.R.attr.colorPrimary, 0
+        )
+        val idle = MaterialColors.getColor(
+            this, com.google.android.material.R.attr.colorOutlineVariant, 0
+        )
+        for (i in 0 until row.childCount) {
+            val card = row.getChildAt(i) as? MaterialCardView ?: continue
+            val active = card.tag == prefs.preset
+            card.strokeWidth = dp(if (active) 2 else 1)
+            card.strokeColor = ColorStateList.valueOf(if (active) selected else idle)
+        }
+    }
+
+    /** Пресет задаёт акцент, радиус, форму и тень, и сразу всё применяет. */
+    private fun applyPreset(preset: Preset) {
+        prefs.preset = preset.id
+        // Пресет берёт один из восьми акцентов — подсветим его кружок.
+        prefs.accent = Look.accents.firstOrNull { it.color == preset.accent }?.id
+            ?: Look.seedKey(preset.accent)
+        prefs.keyRadius = preset.radius
+        prefs.funcRadius = (preset.radius + 6).coerceAtMost(28)
+        prefs.shape = KeyShape.key(preset.shape)
+        prefs.elevation = preset.elevation
+        // Акцент перекрашивает и приложение: пересоздаём экран.
+        recreate()
+    }
+
+    private fun bindAccent() {
+        val row = findViewById<LinearLayout>(R.id.accentRow)
+        row.removeAllViews()
+
+        val strokeIdle = MaterialColors.getColor(
+            this, com.google.android.material.R.attr.colorOutlineVariant, 0
+        )
+        // «Из обоев»: кружок с переливом всех акцентов.
+        row.addView(
+            chip(Look.ACCENT_AUTO, getString(R.string.accent_auto)).apply {
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    gradientType = GradientDrawable.LINEAR_GRADIENT
+                    colors = Look.accents.map { it.color }.toIntArray()
+                    setStroke(dp(2), strokeIdle)
+                }
+            }
+        )
+        Look.accents.forEach { accent ->
+            row.addView(chip(accent.id, accent.name).apply {
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(accent.color)
+                    setStroke(dp(2), strokeIdle)
+                }
+            })
+        }
+        refreshAccentSelection()
+
+        findViewById<Button>(R.id.btnCustomAccent).setOnClickListener { showAccentDialog() }
+
+        if (!DynamicColors.isDynamicColorAvailable()) {
+            findViewById<TextView>(R.id.accentHint).setText(R.string.accent_hint)
+        }
+    }
+
+    private fun chip(accentId: String, label: String): View {
+        val size = dp(44)
+        return View(this).apply {
+            layoutParams = LinearLayout.LayoutParams(size, size).apply { marginEnd = dp(8) }
+            isClickable = true
+            isFocusable = true
+            contentDescription = label
+            tag = accentId
+            setOnClickListener { selectAccent(accentId) }
+        }
+    }
+
+    private fun refreshAccentSelection() {
+        val row = findViewById<LinearLayout>(R.id.accentRow)
+        val selected = MaterialColors.getColor(
+            this, com.google.android.material.R.attr.colorPrimary, 0
+        )
+        val idle = MaterialColors.getColor(
+            this, com.google.android.material.R.attr.colorOutlineVariant, 0
+        )
+        val width = dp(3)
+        for (i in 0 until row.childCount) {
+            val view = row.getChildAt(i)
+            val drawable = view.background as? GradientDrawable ?: continue
+            val active = view.tag == prefs.accent
+            drawable.setStroke(if (active) width else dp(2), if (active) selected else idle)
+            view.background = drawable
+        }
+    }
+
+    private fun selectAccent(id: String) {
+        prefs.accent = id
+        // Акцент выбран вручную — пресет больше не описывает оформление.
+        prefs.preset = Look.PRESET_CUSTOM
+        // «Из обоев» снова включает системную палитру.
+        if (id == Look.ACCENT_AUTO) prefs.dynamicColor = true
+        recreate()
+    }
+
+    /** Свой акцент: три ползунка RGB и живой образец цвета. */
+    private fun showAccentDialog() {
+        val view = layoutInflater.inflate(R.layout.dialog_accent, null)
+        val swatch = view.findViewById<View>(R.id.accentSwatch)
+        val hex = view.findViewById<TextView>(R.id.accentHex)
+        val start = Look.seed(prefs.accent) ?: Look.accents.first().color
+        val channels = intArrayOf(
+            Palette.red(start), Palette.green(start), Palette.blue(start)
+        )
+
+        fun current(): Int = (0xFF shl 24) or
+            (channels[0] shl 16) or (channels[1] shl 8) or channels[2]
+
+        fun preview() {
+            val color = current()
+            swatch.background = GradientDrawable().apply {
+                cornerRadius = dp(16).toFloat()
+                setColor(color)
+            }
+            hex.text = Look.seedKey(color)
+        }
+
+        val ids = intArrayOf(R.id.sldRed, R.id.sldGreen, R.id.sldBlue)
+        ids.forEachIndexed { index, id ->
+            val slider = view.findViewById<Slider>(id)
+            slider.valueFrom = 0f
+            slider.valueTo = 255f
+            slider.stepSize = 1f
+            slider.value = channels[index].toFloat()
+            slider.addOnChangeListener { _, value, _ ->
+                channels[index] = value.toInt()
+                preview()
+            }
+        }
+        preview()
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.accent_dialog_title)
+            .setView(view)
+            .setNegativeButton(R.string.reset_cancel, null)
+            .setPositiveButton(R.string.accent_apply) { _, _ ->
+                prefs.accent = Look.seedKey(current())
+                prefs.preset = Look.PRESET_CUSTOM
+                recreate()
+            }
+            .show()
+    }
+
+    private fun bindContrast() {
+        val group = findViewById<MaterialButtonToggleGroup>(R.id.contrastGroup)
+        group.check(
+            when (Contrast.parse(prefs.contrast)) {
+                Contrast.MEDIUM -> R.id.contrastMedium
+                Contrast.HIGH -> R.id.contrastHigh
+                Contrast.STANDARD -> R.id.contrastStandard
+            }
+        )
+        group.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (!isChecked) return@addOnButtonCheckedListener
+            prefs.contrast = when (checkedId) {
+                R.id.contrastMedium -> "medium"
+                R.id.contrastHigh -> "high"
+                else -> "standard"
+            }
+            miniPreview.refresh()
+        }
+    }
+
+    private fun bindShape() {
+        val group = findViewById<MaterialButtonToggleGroup>(R.id.shapeGroup)
+        group.check(
+            when (KeyShape.parse(prefs.shape)) {
+                KeyShape.SQUARE -> R.id.shapeSquare
+                KeyShape.PILL -> R.id.shapePill
+                KeyShape.FLOWER -> R.id.shapeFlower
+                KeyShape.ROUNDED -> R.id.shapeRounded
+            }
+        )
+        group.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (!isChecked) return@addOnButtonCheckedListener
+            prefs.shape = KeyShape.key(
+                when (checkedId) {
+                    R.id.shapeSquare -> KeyShape.SQUARE
+                    R.id.shapePill -> KeyShape.PILL
+                    R.id.shapeFlower -> KeyShape.FLOWER
+                    else -> KeyShape.ROUNDED
+                }
+            )
+            prefs.preset = Look.PRESET_CUSTOM
+            refreshPresetSelection()
+            miniPreview.refresh()
+        }
+    }
+
+    /** Размер в dp целыми пикселями. */
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).roundToInt()
 
     /** Пример отклика при смене характера вибрации. */
     @Suppress("DEPRECATION")
@@ -578,6 +919,15 @@ class MainActivity : AppCompatActivity() {
         prefs.keyOutline = keyOutline
         prefs.keyFontScale = keyFontScale
         prefs.dynamicColor = dynamicColor
+        prefs.accent = accent
+        prefs.contrast = contrast
+        prefs.preset = preset
+        prefs.shape = shape
+        prefs.funcRadius = funcRadius
+        prefs.elevation = elevation
+        prefs.background = background
+        prefs.keyAlpha = keyAlpha
+        prefs.animations = animations
     }
 
     private fun resetInput() = with(Backup.DEFAULT) {
@@ -604,6 +954,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ── резервная копия ──────────────────────────────────────
+    private fun bindSandbox() {
+        findViewById<Button>(R.id.btnSandbox).setOnClickListener {
+            startActivity(Intent(this, SandboxActivity::class.java))
+        }
+    }
+
     private fun bindBackup() {
         findViewById<Button>(R.id.btnExport).setOnClickListener {
             exportLauncher.launch("mogged-settings.json")
