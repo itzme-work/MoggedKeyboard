@@ -2,6 +2,7 @@ package com.mogged.keyboard
 
 import android.content.Context
 import android.content.res.Configuration
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.LinearGradient
 import android.graphics.Paint
@@ -42,8 +43,8 @@ class MiniKeyboardPreview @JvmOverloads constructor(
             listOf(
                 MiniKey("й", 1f, LETTER), MiniKey("ц", 1f, LETTER),
                 MiniKey("у", 1f, LETTER), MiniKey("к", 1f, LETTER),
-                MiniKey("е", 1f, LETTER), MiniKey("н", 1f, LETTER),
-                MiniKey("г", 1f, LETTER), MiniKey("ш", 1f, LETTER),
+                MiniKey("е", 1f, LETTER, hint = "ё"), MiniKey("н", 1f, LETTER),
+                MiniKey("г", 1f, LETTER, hint = "ґ"), MiniKey("ш", 1f, LETTER),
                 MiniKey("щ", 1f, LETTER), MiniKey("з", 1f, LETTER)
             ),
             listOf(
@@ -57,8 +58,8 @@ class MiniKeyboardPreview @JvmOverloads constructor(
                 MiniKey("⇧", 1.4f, FUNCTION, R.drawable.ic_shift_off),
                 MiniKey("я", 0.95f, LETTER), MiniKey("ч", 0.95f, LETTER),
                 MiniKey("с", 0.95f, LETTER), MiniKey("м", 0.95f, LETTER),
-                MiniKey("и", 0.95f, LETTER), MiniKey("т", 0.95f, LETTER),
-                MiniKey("ь", 0.95f, LETTER),
+                MiniKey("и", 0.95f, LETTER, hint = "й"), MiniKey("т", 0.95f, LETTER),
+                MiniKey("ь", 0.95f, LETTER, hint = "ъ"),
                 MiniKey("⌫", 0.95f, FUNCTION, R.drawable.ic_backspace),
                 MiniKey("↵", 1f, PRIMARY, R.drawable.ic_enter)
             )
@@ -69,7 +70,8 @@ class MiniKeyboardPreview @JvmOverloads constructor(
         val label: String,
         val weight: Float,
         val kind: Int,
-        val iconRes: Int = 0
+        val iconRes: Int = 0,
+        val hint: String? = null
     )
 
     private class PaintSet(
@@ -99,6 +101,10 @@ class MiniKeyboardPreview @JvmOverloads constructor(
         textAlign = Paint.Align.CENTER
         typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
     }
+    private val hintPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        textAlign = Paint.Align.RIGHT
+        typeface = Typeface.create("sans-serif", Typeface.NORMAL)
+    }
     private val rect = RectF()
     private val path = Path()
     private val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -106,14 +112,28 @@ class MiniKeyboardPreview @JvmOverloads constructor(
         strokeWidth = dp(1f)
     }
     private val shadow = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val dimPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    /** Своя картинка фона: читается один раз и сбрасывается при смене настроек. */
+    private var photo: Bitmap? = null
+    private var photoLoaded = false
 
     /** Перерисовать после изменения настроек вида. */
     fun refresh() {
         invalidate()
     }
 
+    /** Сбросить кэш картинки: файл фона заменили или удалили. */
+    fun reloadImage() {
+        photo = null
+        photoLoaded = false
+        invalidate()
+    }
+
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        photo = null
+        photoLoaded = false
         invalidate()
     }
 
@@ -142,14 +162,18 @@ class MiniKeyboardPreview @JvmOverloads constructor(
             Contrast.parse(prefs.contrast).target
         }
         val gradient = preset == null && prefs.background == "gradient"
+        val photoOn = preset == null && prefs.background == "image"
 
-        // Фон: однотонный или градиент от акцента к поверхности.
+        // Фон: своя картинка, градиент от акцента или однотонный.
         // Углы скруглены, чтобы карточки пресетов выглядели аккуратно.
         val backgroundRadius = dp(16f).coerceAtMost(h / 2f)
         path.reset()
         rect.set(0f, 0f, w, h)
         path.addRoundRect(rect, backgroundRadius, backgroundRadius, Path.Direction.CW)
-        if (gradient) {
+        val image = if (photoOn) photo() else null
+        if (image != null) {
+            drawPhoto(canvas, image, w, h, backgroundRadius)
+        } else if (gradient) {
             backgroundPaint.shader = LinearGradient(
                 0f, 0f, 0f, h,
                 Palette.backgroundTop(colors.surface, colors.primaryBg),
@@ -233,7 +257,13 @@ class MiniKeyboardPreview @JvmOverloads constructor(
                     PRIMARY -> colors.primaryFg
                     else -> colors.letterFg
                 }
-                drawLabel(canvas, key, rect, Palette.readable(fg, effectiveBg, target))
+                val labelColor = Palette.readable(fg, effectiveBg, target)
+                val hintColor = if (key.hint != null && prefs.hints) {
+                    Palette.hint(labelColor, effectiveBg, target)
+                } else {
+                    labelColor
+                }
+                drawLabel(canvas, key, rect, labelColor, hintColor)
 
                 x += keyWidth + innerGap
             }
@@ -264,79 +294,90 @@ class MiniKeyboardPreview @JvmOverloads constructor(
         }
 
         val ctx = palette()
-        var letterBg = color(
-            ctx,
-            com.google.android.material.R.attr.colorSurfaceContainerHigh,
-            0xFF2B2930.toInt()
-        )
-        var letterFg = color(
-            ctx,
-            com.google.android.material.R.attr.colorOnSurface,
-            0xFFE6E1E5.toInt()
-        )
-        var functionBg = color(
-            ctx,
-            com.google.android.material.R.attr.colorSecondaryContainer,
-            0xFF4A4458.toInt()
-        )
-        var functionFg = color(
-            ctx,
-            com.google.android.material.R.attr.colorOnSecondaryContainer,
-            0xFFE8DEF8.toInt()
-        )
-        var primaryBg = color(
-            ctx,
-            com.google.android.material.R.attr.colorPrimary,
-            0xFFD0BCFF.toInt()
-        )
-        var primaryFg = color(
-            ctx,
-            com.google.android.material.R.attr.colorOnPrimary,
-            0xFF381E72.toInt()
-        )
-        var outlineColor = color(
-            ctx,
-            com.google.android.material.R.attr.colorOutlineVariant,
-            0xFF49454F.toInt()
-        )
-        var surface = color(
-            ctx,
-            com.google.android.material.R.attr.colorSurface,
-            0xFF1C1B1F.toInt()
+        var roles = Roles(
+            surface = color(
+                ctx, com.google.android.material.R.attr.colorSurface, 0xFF1C1B1F.toInt()
+            ),
+            onKey = color(
+                ctx, com.google.android.material.R.attr.colorOnSurface, 0xFFE6E1E5.toInt()
+            ),
+            onKeyVariant = color(
+                ctx,
+                com.google.android.material.R.attr.colorOnSurfaceVariant,
+                0xFFCAC4D0.toInt()
+            ),
+            surfaceContainerHigh = color(
+                ctx,
+                com.google.android.material.R.attr.colorSurfaceContainerHigh,
+                0xFF2B2930.toInt()
+            ),
+            surfaceContainerHighest = color(
+                ctx,
+                com.google.android.material.R.attr.colorSurfaceContainerHighest,
+                0xFF36343B.toInt()
+            ),
+            secondaryContainer = color(
+                ctx,
+                com.google.android.material.R.attr.colorSecondaryContainer,
+                0xFF4A4458.toInt()
+            ),
+            onSecondaryContainer = color(
+                ctx,
+                com.google.android.material.R.attr.colorOnSecondaryContainer,
+                0xFFE8DEF8.toInt()
+            ),
+            primary = color(
+                ctx, com.google.android.material.R.attr.colorPrimary, 0xFFD0BCFF.toInt()
+            ),
+            onPrimary = color(
+                ctx, com.google.android.material.R.attr.colorOnPrimary, 0xFF381E72.toInt()
+            ),
+            primaryContainer = color(
+                ctx,
+                com.google.android.material.R.attr.colorPrimaryContainer,
+                0xFF4F378B.toInt()
+            ),
+            onPrimaryContainer = color(
+                ctx,
+                com.google.android.material.R.attr.colorOnPrimaryContainer,
+                0xFFEADDFF.toInt()
+            ),
+            outlineVariant = color(
+                ctx,
+                com.google.android.material.R.attr.colorOutlineVariant,
+                0xFF49454F.toInt()
+            )
         )
 
         // Выбранный акцент строит палитру из одного цвета — одинаково
         // на всех версиях Android, даже там, где динамических цветов нет.
         Look.seed(prefs.accent)?.let { seed ->
-            val roles = Look.roles(seed, darkTheme(), target)
-            letterBg = roles.surfaceContainerHigh
-            letterFg = roles.onKey
-            functionBg = roles.secondaryContainer
-            functionFg = roles.onSecondaryContainer
-            primaryBg = roles.primary
-            primaryFg = roles.onPrimary
-            outlineColor = roles.outlineVariant
-            surface = roles.surface
+            roles = Look.roles(seed, darkTheme(), target)
         }
 
         // AMOLED показывает ту же почти чёрную палитру, что и живая клавиатура.
         if (prefs.theme == "amoled") {
-            surface = 0xFF000000.toInt()
-            letterBg = Palette.amoledSurface(letterFg)
-            functionBg = Palette.amoledAccent(primaryBg)
-            functionFg = letterFg
-            outlineColor = Palette.amoledOutline(letterFg)
+            roles = roles.copy(
+                surface = 0xFF000000.toInt(),
+                surfaceContainerHigh = Palette.amoledSurface(roles.onKey),
+                surfaceContainerHighest = Palette.amoledHighest(roles.onKey),
+                secondaryContainer = Palette.amoledAccent(roles.primary),
+                outlineVariant = Palette.amoledOutline(roles.onKey)
+            )
         }
 
+        // Та же подгонка, что в сервисе: контраст не зависит от ветки палитры.
+        roles = Look.fitContrast(roles, target)
+
         return PaintSet(
-            surface = surface,
-            letterBg = letterBg,
-            letterFg = letterFg,
-            functionBg = functionBg,
-            functionFg = functionFg,
-            primaryBg = primaryBg,
-            primaryFg = primaryFg,
-            outline = outlineColor
+            surface = roles.surface,
+            letterBg = roles.surfaceContainerHigh,
+            letterFg = roles.onKey,
+            functionBg = roles.secondaryContainer,
+            functionFg = roles.onSecondaryContainer,
+            primaryBg = roles.primary,
+            primaryFg = roles.onPrimary,
+            outline = roles.outlineVariant
         )
     }
 
@@ -348,7 +389,43 @@ class MiniKeyboardPreview @JvmOverloads constructor(
             Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
     }
 
-    private fun drawLabel(canvas: Canvas, key: MiniKey, box: RectF, color: Int) {
+    /** Своя картинка: читается с диска один раз до следующего refresh. */
+    private fun photo(): Bitmap? {
+        if (!photoLoaded) {
+            photo = if (prefs.backgroundImage) Images.bitmap(context) else null
+            photoLoaded = true
+        }
+        return photo
+    }
+
+    /** Картинка по центру с обрезкой и затемнением из настроек. */
+    private fun drawPhoto(canvas: Canvas, image: Bitmap, w: Float, h: Float, radius: Float) {
+        if (image.width <= 0 || image.height <= 0) return
+        val scale = maxOf(w / image.width, h / image.height)
+        val drawW = image.width * scale
+        val drawH = image.height * scale
+        val left = (w - drawW) / 2f
+        val top = (h - drawH) / 2f
+
+        path.reset()
+        rect.set(0f, 0f, w, h)
+        path.addRoundRect(rect, radius, radius, Path.Direction.CW)
+
+        canvas.save()
+        canvas.clipPath(path)
+        rect.set(left, top, left + drawW, top + drawH)
+        backgroundPaint.shader = null
+        backgroundPaint.isFilterBitmap = true
+        canvas.drawBitmap(image, null, rect, backgroundPaint)
+        // Затемнение 0–80%: клавиши остаются читаемыми на любой картинке.
+        dimPaint.color = Palette.withAlpha(
+            0xFF000000.toInt(), prefs.backgroundDim.coerceIn(0, 80) / 100f
+        )
+        canvas.drawRect(0f, 0f, w, h, dimPaint)
+        canvas.restore()
+    }
+
+    private fun drawLabel(canvas: Canvas, key: MiniKey, box: RectF, color: Int, hint: Int) {
         if (key.iconRes != 0) {
             // Функциональные клавиши — те же векторные иконки, что на клавиатуре.
             val icon = AppCompatResources.getDrawable(context, key.iconRes)?.mutate()
@@ -365,6 +442,19 @@ class MiniKeyboardPreview @JvmOverloads constructor(
         textPaint.color = color
         val baseline = box.centerY() - (textPaint.ascent() + textPaint.descent()) / 2f
         canvas.drawText(key.label, box.centerX(), baseline, textPaint)
+
+        // Подсказка в углу — та же формула цвета, что на живой клавиатуре.
+        val hintText = key.hint
+        if (hintText != null && prefs.hints) {
+            hintPaint.textSize = textPaint.textSize * 0.62f
+            hintPaint.color = hint
+            canvas.drawText(
+                hintText,
+                box.right - dp(4f),
+                box.top + hintPaint.textSize * 0.95f,
+                hintPaint
+            )
+        }
     }
 
     /**
