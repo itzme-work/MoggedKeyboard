@@ -226,4 +226,70 @@ class BackupTest {
         assertNull(Backup.parse("""{"app":"mogged-keyboard", "schema": 1, """))
         assertNull(Backup.parse("[]"))
     }
+
+    @Test
+    fun panelTemplatesAndImageSurviveBackup() {
+        val settings = Backup.DEFAULT.copy(
+            panelOn = true,
+            panelActions = "copy,paste,settings",
+            templates = Templates.toJson(
+                listOf(Template("адрес", "Москва, Тверская, 1"), Template("тлф", "+7 900 000-00-00"))
+            ),
+            smartQuotes = false,
+            smartDash = true,
+            smartEllipsis = false,
+            smartSpace = true,
+            incognito = true,
+            background = "image",
+            backgroundImage = true,
+            backgroundDim = 60,
+            backgroundBlur = true
+        )
+        val restored = Backup.parse(Backup.toJson(settings))!!
+        assertEquals(settings, restored)
+        assertEquals("copy,paste,settings", restored.panelActions)
+        assertEquals(2, Templates.parse(restored.templates).size)
+    }
+
+    @Test
+    fun oldBackupWithoutPanelAndTemplatesGetsDefaults() {
+        val settings = Backup.parse(
+            """{"app":"mogged-keyboard","schema":1,"theme":"dark"}"""
+        )!!
+        assertEquals(false, settings.panelOn)
+        assertEquals(Panel.DEFAULT, settings.panelActions)
+        assertEquals(0, Templates.parse(settings.templates).size)
+        assertEquals(true, settings.smartQuotes)
+        assertEquals(true, settings.smartDash)
+        assertEquals(true, settings.smartEllipsis)
+        assertEquals(false, settings.smartSpace)
+        assertEquals(false, settings.incognito)
+        assertEquals(false, settings.backgroundImage)
+        assertEquals(40, settings.backgroundDim)
+        assertEquals(false, settings.backgroundBlur)
+    }
+
+    @Test
+    fun panelAndTemplateLimitsAreEnforcedOnImport() {
+        val templates = (1..60).joinToString(",") { i ->
+            """{"shortcut":"к$i","text":"${"т".repeat(600)}"}"""
+        }
+        val json = """
+            {
+              "app": "mogged-keyboard",
+              "schema": 1,
+              "panelActions": "paste,unknown,paste,copy",
+              "templates": [$templates],
+              "backgroundDim": 500,
+              "background": "image"
+            }
+        """.trimIndent()
+        val settings = Backup.parse(json)!!
+        assertEquals("paste,copy", settings.panelActions)
+        assertEquals(50, Templates.parse(settings.templates).size)
+        assertEquals(500, Templates.parse(settings.templates).first().text.length)
+        assertEquals(80, settings.backgroundDim)
+        assertEquals("image", settings.background)
+        assertFalse(settings.panelActions.contains("unknown"))
+    }
 }
