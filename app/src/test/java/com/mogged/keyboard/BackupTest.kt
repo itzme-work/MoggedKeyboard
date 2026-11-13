@@ -33,7 +33,16 @@ class BackupTest {
         releaseHaptic = true,
         customHapticDuration = 40,
         oneHandPanel = false,
-        dynamicColor = false
+        dynamicColor = false,
+        accent = "#123456",
+        contrast = "high",
+        preset = "custom",
+        shape = "pill",
+        funcRadius = 22,
+        elevation = 3,
+        background = "gradient",
+        keyAlpha = 60,
+        animations = false
     )
 
     @Test
@@ -128,6 +137,61 @@ class BackupTest {
         assertEquals(24, settings.customHapticDuration)
         assertEquals(true, settings.oneHandPanel)
         assertEquals(true, settings.dynamicColor)
+    }
+
+    @Test
+    fun namedAccentAndPresetSurviveBackup() {
+        // Готовый акцент хранится именем, пресет — своим id: копия не должна
+        // молча превращать их в «Из обоев» и «Свой».
+        val settings = Backup.DEFAULT.copy(accent = "mint", preset = "ocean")
+        val restored = Backup.parse(Backup.toJson(settings))!!
+        assertEquals("mint", restored.accent)
+        assertEquals("ocean", restored.preset)
+    }
+
+    @Test
+    fun oldBackupGetsDefaultLook() {
+        // Копия 0.8.1: об оформлении ещё ничего не знала.
+        val settings = Backup.parse(
+            """{"app":"mogged-keyboard","schema":1,"theme":"dark"}"""
+        )!!
+        assertEquals(Look.ACCENT_AUTO, settings.accent)
+        assertEquals("standard", settings.contrast)
+        assertEquals(Look.PRESET_CUSTOM, settings.preset)
+        assertEquals("rounded", settings.shape)
+        assertEquals(17, settings.funcRadius)
+        assertEquals(0, settings.elevation)
+        assertEquals("solid", settings.background)
+        assertEquals(100, settings.keyAlpha)
+        assertEquals(true, settings.animations)
+    }
+
+    @Test
+    fun lookValuesAreValidatedOnImport() {
+        val json = """
+            {
+              "app": "mogged-keyboard",
+              "schema": 1,
+              "accent": "неон",
+              "contrast": "космос",
+              "shape": "звезда",
+              "background": "аврора",
+              "preset": "неон",
+              "funcRadius": 90,
+              "elevation": -2,
+              "keyAlpha": 900
+            }
+        """.trimIndent()
+
+        val settings = Backup.parse(json)!!
+        assertEquals(Look.ACCENT_AUTO, settings.accent)
+        assertEquals("standard", settings.contrast)
+        assertEquals(Look.PRESET_CUSTOM, settings.preset)
+        assertEquals("rounded", settings.shape)
+        assertEquals("solid", settings.background)
+        assertEquals(28, settings.funcRadius)
+        assertEquals(0, settings.elevation)
+        assertEquals(100, settings.keyAlpha)
     }
 
     @Test
