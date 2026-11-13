@@ -30,35 +30,42 @@ class LookTest {
     }
 
     @Test
-    fun rolesKeepLabelsReadableInLightAndDark() {
+    fun rolesKeepLabelsReadableAtEveryLevel() {
+        // Каждый акцент, обе темы и все три уровня контраста: подпись
+        // действительно дотягивает до порога, а не просто становится чёрной.
         val accents = Look.accents + Look.presets.map { Accent(it.id, it.name, it.accent) }
         for (accent in accents) {
             for (dark in listOf(false, true)) {
-                val roles = Look.roles(accent.color, dark)
-                assertTrue(
-                    "буквы на ${accent.id}, dark=$dark",
-                    Palette.contrast(roles.onKey, roles.surfaceContainerHigh) >= 4.5
-                )
-                assertTrue(
-                    "подсказки на ${accent.id}, dark=$dark",
-                    Palette.contrast(roles.onKeyVariant, roles.surfaceContainerHigh) >= 4.5
-                )
-                assertTrue(
-                    "функциональные на ${accent.id}, dark=$dark",
-                    Palette.contrast(
-                        roles.onSecondaryContainer, roles.secondaryContainer
-                    ) >= 4.5
-                )
-                assertTrue(
-                    "Enter на ${accent.id}, dark=$dark",
-                    Palette.contrast(roles.onPrimary, roles.primary) >= 4.5
-                )
-                assertTrue(
-                    "подсказка клавиши на ${accent.id}, dark=$dark",
-                    Palette.contrast(
-                        roles.onPrimaryContainer, roles.primaryContainer
-                    ) >= 4.5
-                )
+                for (level in Contrast.values()) {
+                    val roles = Look.roles(accent.color, dark, level.target)
+                    val where = "${accent.id}, ${level.key}, dark=$dark"
+                    assertTrue(
+                        "буквы ($where)",
+                        Palette.contrast(roles.onKey, roles.surfaceContainerHigh) >= level.target
+                    )
+                    assertTrue(
+                        "пробел ($where)",
+                        Palette.contrast(
+                            roles.onKeyVariant, roles.surfaceContainerHighest
+                        ) >= level.target
+                    )
+                    assertTrue(
+                        "функциональные ($where)",
+                        Palette.contrast(
+                            roles.onSecondaryContainer, roles.secondaryContainer
+                        ) >= level.target
+                    )
+                    assertTrue(
+                        "Enter ($where)",
+                        Palette.contrast(roles.onPrimary, roles.primary) >= level.target
+                    )
+                    assertTrue(
+                        "подсказка клавиши ($where)",
+                        Palette.contrast(
+                            roles.onPrimaryContainer, roles.primaryContainer
+                        ) >= level.target
+                    )
+                }
             }
         }
     }
