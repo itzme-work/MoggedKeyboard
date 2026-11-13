@@ -6,6 +6,16 @@
         <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
 
+    <!--
+        Splash Screen API: системный экран запуска. Тот же значок, что на
+        рабочем столе, и цвет фона иконки. После показа — обычная тема.
+    -->
+    <style name="Theme.Mogged.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/ic_launcher_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="postSplashScreenTheme">@style/Theme.Mogged</item>
+    </style>
+
     <!-- Тема, из которой клавиатура берёт цвета (применяется через ContextThemeWrapper) -->
     <style name="Theme.Mogged.Keyboard" parent="Theme.Material3.DayNight.NoActionBar" />
 
