@@ -29,6 +29,8 @@ import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
+import android.view.animation.DecelerateInterpolator
+import android.view.animation.OvershootInterpolator
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.ImageView
@@ -98,6 +100,14 @@ class MoggedKeyboardService : InputMethodService() {
     private var releaseHaptic = false
     private var customHapticDuration = 24
     private var oneHandPanel = true
+    private var accentSetting = Look.ACCENT_AUTO
+    private var contrastTarget = Contrast.STANDARD.target
+    private var keyShape = KeyShape.ROUNDED
+    private var funcRadiusDp = 17
+    private var elevationDp = 0
+    private var backgroundStyle = "solid"
+    private var keyAlpha = 100
+    private var animationsOn = true
 
     /** Тема, с которой построен текущий input view. */
     private var builtTheme: String? = null
@@ -199,6 +209,14 @@ class MoggedKeyboardService : InputMethodService() {
         releaseHaptic = prefs.releaseHaptic
         customHapticDuration = prefs.customHapticDuration
         oneHandPanel = prefs.oneHandPanel
+        accentSetting = prefs.accent
+        contrastTarget = Contrast.parse(prefs.contrast).target
+        keyShape = KeyShape.parse(prefs.shape)
+        funcRadiusDp = prefs.funcRadius
+        elevationDp = prefs.elevation
+        backgroundStyle = prefs.background
+        keyAlpha = prefs.keyAlpha
+        animationsOn = prefs.animations && ValueAnimator.areAnimatorsEnabled()
     }
 
     // ── создание разметки клавиатуры ─────────────────────────
@@ -288,13 +306,21 @@ class MoggedKeyboardService : InputMethodService() {
 
         val base = createConfigurationContext(config)
         val themed = ContextThemeWrapper(base, R.style.Theme_Mogged_Keyboard)
-        // Динамические цвета выключены — остаётся базовая палитра Material 3.
-        if (!dynamicColor) return themed
+        // Динамические цвета выключены и акцент не выбран — базовая палитра M3.
+        if (!dynamicColor && accentSetting == Look.ACCENT_AUTO) return themed
         return try {
-            DynamicColors.wrapContextIfAvailable(themed)
+            DynamicColors.wrapContextIfAvailable(themed, MoggedApp.dynamicOptions(this))
         } catch (t: Throwable) {
             themed
         }
+    }
+
+    /** Тёмная ли тема: system смотрит на ночной режим системы. */
+    private fun isDarkTheme(): Boolean = when (selTheme) {
+        "dark", "amoled" -> true
+        "light" -> false
+        else -> resources.configuration.uiMode and
+            Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
     }
 
     @Suppress("DEPRECATION")
@@ -328,6 +354,25 @@ class MoggedKeyboardService : InputMethodService() {
             Palette.blend(cOnKey, cSurface, 0.45f)
         )
 
+        // Выбранный акцент строит палитру из одного цвета: одинаково на всех
+        // версиях Android, даже там, где системных динамических цветов нет.
+        val accentSeed = Look.seed(accentSetting)
+        accentSeed?.let { seed ->
+            val roles = Look.roles(seed, isDarkTheme())
+            cSurface = roles.surface
+            cOnKey = roles.onKey
+            cOnKeyVariant = roles.onKeyVariant
+            cSurfaceContainerHigh = roles.surfaceContainerHigh
+            cSurfaceContainerHighest = roles.surfaceContainerHighest
+            cSecondaryContainer = roles.secondaryContainer
+            cOnSecondaryContainer = roles.onSecondaryContainer
+            cPrimary = roles.primary
+            cOnPrimary = roles.onPrimary
+            cPrimaryContainer = roles.primaryContainer
+            cOnPrimaryContainer = roles.onPrimaryContainer
+            cOutlineVariant = roles.outlineVariant
+        }
+
         // Клавиши берут цвета из тональных ролей выше: своих смесей нет,
         // поэтому палитра и системный контраст передаются без искажений.
         // AMOLED: фон действительно чёрный, поверхности почти чёрные,
@@ -342,10 +387,13 @@ class MoggedKeyboardService : InputMethodService() {
         }
 
         // Приглушённый текст (подпись пробела) — отдельная роль темы.
-        cOnKeyVariant = attr(
-            com.google.android.material.R.attr.colorOnSurfaceVariant,
-            Palette.blend(cOnKey, cSurface, 0.30f)
-        )
+        // С выбранным акцентом её уже посчитал Look.roles.
+        if (accentSeed == null) {
+            cOnKeyVariant = attr(
+                com.google.android.material.R.attr.colorOnSurfaceVariant,
+                Palette.blend(cOnKey, cSurface, 0.30f)
+            )
+        }
     }
 
     private fun attr(id: Int, fallback: Int): Int {
@@ -371,9 +419,22 @@ class MoggedKeyboardService : InputMethodService() {
         val def: Key
     )
 
+    /** Фон клавиатуры: однотонный или градиент от акцента к поверхности. */
+    private fun applyBackground() {
+        val view = root ?: return
+        if (backgroundStyle == "gradient") {
+            view.background = GradientDrawable(
+                GradientDrawable.Orientation.TOP_BOTTOM,
+                intArrayOf(Palette.backgroundTop(cSurface, cPrimary), cSurface)
+            )
+        } else {
+            view.background = ColorDrawable(cSurface)
+        }
+    }
+
     private fun render() {
         val box = rowsBox ?: return
-        root?.setBackgroundColor(cSurface)
+        applyBackground()
 
         val layout = Layouts.page(
             page, lang, extraLeft, extraRight,
@@ -424,6 +485,9 @@ class MoggedKeyboardService : InputMethodService() {
         append(langKeyOn).append('/').append(keyOutline).append('/')
         append(fontScale).append('/')
         append(contentWidth()).append('/').append(keyboardHeight()).append('/')
+        append(accentSetting).append('/').append(contrastTarget).append('/')
+        append(keyShape).append('/').append(funcRadiusDp).append('/')
+        append(elevationDp).append('/').append(keyAlpha).append('/')
         append(layout.size).append('/').append(layout.firstOrNull()?.size ?: 0)
     }
 
@@ -437,6 +501,7 @@ class MoggedKeyboardService : InputMethodService() {
             contentDescription = describe(def)
             minimumHeight = dp(48)
             background = keyBackground(backgroundFor(def), base)
+            elevation = dp(elevationDp).toFloat()
             layoutParams = LinearLayout.LayoutParams(
                 0, ViewGroup.LayoutParams.MATCH_PARENT, weightFor(def)
             ).apply {
@@ -450,7 +515,7 @@ class MoggedKeyboardService : InputMethodService() {
             includeFontPadding = false
             text = label(def)
             textSize = sizeFor(def)
-            setTextColor(colorFor(def))
+            setTextColor(labelColor(def))
             typeface = letterTypeface(def)
             isClickable = false
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
@@ -472,7 +537,7 @@ class MoggedKeyboardService : InputMethodService() {
                 isClickable = false
                 importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
                 setImageResource(iconFor(def))
-                imageTintList = ColorStateList.valueOf(colorFor(def))
+                imageTintList = ColorStateList.valueOf(labelColor(def))
             }
             frame.addView(
                 icon,
@@ -489,7 +554,7 @@ class MoggedKeyboardService : InputMethodService() {
             hint = TextView(ctx).apply {
                 text = def.hint
                 textSize = hintSize()
-                setTextColor(Palette.withAlpha(colorFor(def), 0.55f))
+                setTextColor(hintColor(def))
                 gravity = Gravity.TOP or Gravity.END
                 includeFontPadding = false
                 setPadding(0, dp(4), dp(5), 0)
@@ -515,12 +580,17 @@ class MoggedKeyboardService : InputMethodService() {
     /** Применяет текущее состояние (Shift, Caps, язык) к уже созданной клавише. */
     private fun updateKey(holder: KeyHolder) {
         val def = holder.def
-        val fg = colorFor(def)
+        val fg = labelColor(def)
 
         // Фон меняем в самом drawable: смена Shift не трогает разметку.
         val ripple = holder.frame.background as? RippleDrawable
         val background = backgroundFor(def)
-        (ripple?.getDrawable(0) as? GradientDrawable)?.setColor(background)
+        val shown = if (keyAlpha >= 100) {
+            background
+        } else {
+            Palette.withAlpha(background, keyAlpha / 100f)
+        }
+        (ripple?.getDrawable(0) as? GradientDrawable)?.setColor(shown)
         ripple?.setColor(ColorStateList.valueOf(Palette.ripple(background, cPrimary, cOnPrimary)))
 
         holder.text.text = label(def)
@@ -528,7 +598,7 @@ class MoggedKeyboardService : InputMethodService() {
         holder.text.setTextColor(fg)
         holder.text.typeface = letterTypeface(def)
 
-        holder.hint?.setTextColor(Palette.withAlpha(fg, 0.55f))
+        holder.hint?.setTextColor(hintColor(def))
 
         holder.icon?.let { view ->
             view.setImageResource(iconFor(def))
@@ -791,9 +861,9 @@ class MoggedKeyboardService : InputMethodService() {
     ) {
         frame.setOnTouchListener { view, event ->
             when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> animateRadius(view, base, base * 1.16f)
+                MotionEvent.ACTION_DOWN -> press(view, base, down = true)
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    animateRadius(view, base * 1.16f, base)
+                    press(view, base, down = false)
                     // Отклик при отпускании — отдельный лёгкий тик.
                     if (releaseHaptic && event.actionMasked == MotionEvent.ACTION_UP) {
                         tick()
@@ -804,9 +874,36 @@ class MoggedKeyboardService : InputMethodService() {
         }
     }
 
+    /** Пружинное нажатие: клавиша чуть проседает и мягко возвращается. */
+    private fun press(view: View, base: Float, down: Boolean) {
+        if (!animationsOn) {
+            view.scaleX = 1f
+            view.scaleY = 1f
+            return
+        }
+        view.animate().cancel()
+        val scale = if (down) 0.94f else 1f
+        view.animate()
+            .scaleX(scale)
+            .scaleY(scale)
+            .setDuration(if (down) 90L else 170L)
+            .setInterpolator(
+                if (down) DecelerateInterpolator() else OvershootInterpolator(2.4f)
+            )
+            .start()
+        if (keyShape == KeyShape.ROUNDED) {
+            if (down) animateRadius(view, base, base * 1.16f)
+            else animateRadius(view, base * 1.16f, base)
+        }
+    }
+
     private fun animateRadius(view: View, from: Float, to: Float) {
         val ripple = view.background as? RippleDrawable ?: return
         val content = ripple.getDrawable(0) as? GradientDrawable ?: return
+        if (!animationsOn) {
+            content.cornerRadius = to
+            return
+        }
         ValueAnimator.ofFloat(from, to).apply {
             duration = 110
             addUpdateListener { content.cornerRadius = it.animatedValue as Float }
@@ -815,16 +912,18 @@ class MoggedKeyboardService : InputMethodService() {
     }
 
     private fun keyBackground(color: Int, radius: Float): Drawable {
+        val shown = if (keyAlpha >= 100) color else Palette.withAlpha(color, keyAlpha / 100f)
+        val radii = Palette.radii(keyShape, radius)
         val content = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
-            cornerRadius = radius
-            setColor(color)
+            cornerRadii = radii
+            setColor(shown)
             // Контур клавиш: тонкая обводка цветом outlineVariant.
             if (keyOutline) setStroke(dp(1), cOutlineVariant)
         }
         val mask = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
-            cornerRadius = radius
+            cornerRadii = radii
             setColor(Color.WHITE)
         }
         val ripple = Palette.ripple(color, cPrimary, cOnPrimary)
@@ -842,13 +941,13 @@ class MoggedKeyboardService : InputMethodService() {
         val bubble = TextView(ctx).apply {
             this.text = text
             textSize = (letterSize * 1.35f).coerceAtMost(34f)
-            setTextColor(cOnPrimaryContainer)
+            setTextColor(Palette.readable(cOnPrimaryContainer, cPrimaryContainer, contrastTarget))
             gravity = Gravity.CENTER
             includeFontPadding = false
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
                 // Форма та же, что у клавиши, — пузырь вырастает из неё.
-                cornerRadius = dp(keyRadiusDp + 6).toFloat()
+                cornerRadii = Palette.radii(keyShape, dp(keyRadiusDp).toFloat())
                 setColor(cPrimaryContainer)
             }
         }
@@ -867,6 +966,17 @@ class MoggedKeyboardService : InputMethodService() {
             )
         } catch (t: Throwable) {
             return
+        }
+        // Всплывающая клавиша: пузырь появляется с лёгким пружинным ростом.
+        if (animationsOn) {
+            bubble.scaleX = 0.82f
+            bubble.scaleY = 0.82f
+            bubble.animate()
+                .scaleX(1f)
+                .scaleY(1f)
+                .setDuration(140L)
+                .setInterpolator(OvershootInterpolator(2.2f))
+                .start()
         }
         previewPopup = popup
     }
@@ -904,7 +1014,13 @@ class MoggedKeyboardService : InputMethodService() {
             val item = TextView(ctx).apply {
                 text = shown
                 textSize = letterSize
-                setTextColor(colorFor(Key.Char(option)))
+                setTextColor(
+                    Palette.readable(
+                        colorFor(Key.Char(option)),
+                        cSurfaceContainerHigh,
+                        contrastTarget
+                    )
+                )
                 gravity = Gravity.CENTER
                 includeFontPadding = false
                 minWidth = dp(44)
@@ -991,7 +1107,13 @@ class MoggedKeyboardService : InputMethodService() {
             val item = TextView(ctx).apply {
                 text = getString(res)
                 textSize = specialSize
-                setTextColor(if (active) cPrimary else cOnKey)
+                setTextColor(
+                    if (active) {
+                        Palette.readable(cPrimary, cSurfaceContainerHigh, contrastTarget)
+                    } else {
+                        Palette.readable(cOnKey, cSurfaceContainerHigh, contrastTarget)
+                    }
+                )
                 typeface = Typeface.create(
                     "sans-serif-medium",
                     if (active) Typeface.BOLD else Typeface.NORMAL
@@ -1149,9 +1271,33 @@ class MoggedKeyboardService : InputMethodService() {
             cOnSecondaryContainer
     }
 
-    /** Функциональные клавиши и Enter круглее буквенных. */
+    /** Фон клавиши с учётом прозрачности — по нему считается контраст подписи. */
+    private fun effectiveBackground(def: Key): Int {
+        val background = backgroundFor(def)
+        return if (keyAlpha >= 100) {
+            background
+        } else {
+            Palette.blend(cSurface, background, keyAlpha / 100f)
+        }
+    }
+
+    /** Подпись не ниже выбранного контраста к настоящему фону клавиши. */
+    private fun labelColor(def: Key): Int =
+        Palette.readable(colorFor(def), effectiveBackground(def), contrastTarget)
+
+    /**
+     * Подсказка в углу приглушена, но тоже не ниже выбранного контраста:
+     * после смешивания с фоном цвет снова проверяется.
+     */
+    private fun hintColor(def: Key): Int {
+        val background = effectiveBackground(def)
+        val dimmed = Palette.blend(background, labelColor(def), 0.65f)
+        return Palette.readable(dimmed, background, contrastTarget)
+    }
+
+    /** Буквенные и функциональные клавиши могут иметь разный радиус. */
     private fun radiusFor(def: Key): Float =
-        dp(if (def is Key.Char) keyRadiusDp else keyRadiusDp + 6).toFloat()
+        dp(if (def is Key.Char) keyRadiusDp else funcRadiusDp).toFloat()
 
     private fun weightFor(def: Key): Float = when (def) {
         Key.Shift, Key.Backspace, Key.Enter -> 1.6f
