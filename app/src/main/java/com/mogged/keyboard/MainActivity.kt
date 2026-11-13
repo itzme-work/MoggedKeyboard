@@ -10,6 +10,8 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.provider.Settings
+import android.text.InputFilter
+import android.text.InputType
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.StyleSpan
@@ -18,9 +20,12 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
+import android.widget.CheckBox
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
+import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
@@ -132,6 +137,13 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         if (uri != null) loadBackup(uri)
+    }
+
+    /** Своя картинка фона: системный диалог «открыть документ». */
+    private val imageLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) pickImage(uri)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -404,6 +416,46 @@ class MainActivity : AppCompatActivity() {
         bindContrast()
         bindShape()
 
+        // Панель, шаблоны, пунктуация и инкогнито.
+        bindSwitch(R.id.swPanel, prefs.panelOn) { prefs.panelOn = it }
+        bindSwitch(R.id.swSmartQuotes, prefs.smartQuotes) { prefs.smartQuotes = it }
+        bindSwitch(R.id.swSmartDash, prefs.smartDash) { prefs.smartDash = it }
+        bindSwitch(R.id.swSmartEllipsis, prefs.smartEllipsis) { prefs.smartEllipsis = it }
+        bindSwitch(R.id.swSmartSpace, prefs.smartSpace) { prefs.smartSpace = it }
+        bindSwitch(R.id.swIncognito, prefs.incognito) { prefs.incognito = it }
+        findViewById<Button>(R.id.btnPanelActions).setOnClickListener { showPanelDialog() }
+        findViewById<Button>(R.id.btnTemplates).setOnClickListener { showTemplates() }
+
+        // Своя картинка фона.
+        findViewById<Button>(R.id.btnPickImage).setOnClickListener {
+            imageLauncher.launch(arrayOf("image/*"))
+        }
+        findViewById<Button>(R.id.btnRemoveImage).setOnClickListener { removeImage() }
+        setupSlider(
+            R.id.sldBgDim, R.id.bgDimValue, 0f, 80f, 5f,
+            prefs.backgroundDim, R.string.bg_dim_value_short
+        ) {
+            prefs.backgroundDim = it
+            miniPreview.refresh()
+        }
+        bindSwitch(R.id.swBlur, prefs.backgroundBlur) {
+            prefs.backgroundBlur = it
+            if (Images.exists(this)) {
+                Images.applyBlur(this, it && Images.canBlur())
+                miniPreview.reloadImage()
+            }
+        }
+        if (!Images.canBlur()) {
+            prefs.backgroundBlur = false
+            findViewById<MaterialSwitch>(R.id.swBlur).apply {
+                isChecked = false
+                isEnabled = false
+                text = getString(R.string.bg_blur_unavailable)
+            }
+        }
+        refreshImageButtons()
+        refreshTemplates()
+
         setupSlider(
             R.id.sldFuncRadius, R.id.funcRadiusValue, 0f, 28f, 1f,
             prefs.funcRadius, R.string.radius_value_short
@@ -433,7 +485,11 @@ class MainActivity : AppCompatActivity() {
         }
 
         bindSwitch(R.id.swGradient, prefs.background == "gradient") {
-            prefs.background = if (it) "gradient" else "solid"
+            prefs.background = when {
+                it -> "gradient"
+                prefs.backgroundImage && Images.exists(this) -> "image"
+                else -> "solid"
+            }
             miniPreview.refresh()
         }
         bindSwitch(R.id.swAnimations, prefs.animations) { prefs.animations = it }
@@ -938,6 +994,226 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    // ── панель, шаблоны, картинка ────────────────────────────
+    /**
+     * Состав и порядок кнопок панели: галочка включает кнопку,
+     * стрелки двигают её вверх и вниз.
+     */
+    private fun showPanelDialog() {
+        val working = prefs.panelActions.toMutableList()
+
+        val list = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(8), dp(4), dp(8), dp(4))
+        }
+        val scroller = ScrollView(this).apply {
+            addView(list)
+            setPadding(dp(16), 0, dp(16), 0)
+        }
+
+        // Ссылка на перерисовку нужна стрелкам, поэтому объявляем её заранее.
+        var redraw: (() -> Unit)? = null
+
+        fun row(action: String) {
+            val line = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            val check = CheckBox(this).apply {
+                text = getString(Panel.titleRes(action))
+                isChecked = action in working
+                setOnCheckedChangeListener { _, on ->
+                    if (on) {
+                        if (action !in working) working.add(action)
+                    } else {
+                        working.remove(action)
+                    }
+                }
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            line.addView(check)
+            line.addView(arrowButton("↑") {
+                val index = working.indexOf(action)
+                if (index > 0) {
+                    working.removeAt(index)
+                    working.add(index - 1, action)
+                    redraw?.invoke()
+                }
+            })
+            line.addView(arrowButton("↓") {
+                val index = working.indexOf(action)
+                if (index >= 0 && index < working.size - 1) {
+                    working.removeAt(index)
+                    working.add(index + 1, action)
+                    redraw?.invoke()
+                }
+            })
+            list.addView(line)
+        }
+
+        redraw = {
+            list.removeAllViews()
+            // Порядок берём из рабочего списка, затем добавляем выключенные.
+            working.forEach { row(it) }
+            Panel.ACTIONS.filter { it !in working }.forEach { row(it) }
+        }
+        redraw?.invoke()
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.panel_pick_title)
+            .setMessage(R.string.panel_pick_hint)
+            .setView(scroller)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                if (working.isEmpty()) {
+                    working.addAll(Panel.DEFAULT.split(','))
+                }
+                prefs.panelActions = working
+            }
+            .setNegativeButton(R.string.reset_cancel, null)
+            .show()
+    }
+
+    private fun arrowButton(text: String, action: () -> Unit) = Button(this).apply {
+        this.text = text
+        minWidth = dp(40)
+        minHeight = dp(40)
+        setOnClickListener { action() }
+    }
+
+    private fun showTemplates() {
+        val list = prefs.templates
+        val items = ArrayList<String>()
+        items.add("+ " + getString(R.string.templates_add))
+        list.forEach {
+            val preview = it.text.replace('\n', ' ').take(40)
+            items.add("${it.shortcut} → $preview")
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.templates_title)
+            .setItems(items.toTypedArray()) { _, which ->
+                if (which == 0) {
+                    showTemplateEditor(null)
+                } else {
+                    showTemplateEditor(which - 1)
+                }
+            }
+            .setNegativeButton(R.string.reset_cancel, null)
+            .show()
+    }
+
+    private fun showTemplateEditor(index: Int?) {
+        val existing = index?.let { prefs.templates.getOrNull(it) }
+
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(24), dp(8), dp(24), 0)
+        }
+        val shortcut = EditText(this).apply {
+            hint = getString(R.string.templates_shortcut)
+            setText(existing?.shortcut.orEmpty())
+            filters = arrayOf(InputFilter.LengthFilter(Templates.MAX_SHORTCUT))
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            maxLines = 1
+        }
+        val body = EditText(this).apply {
+            hint = getString(R.string.templates_text)
+            setText(existing?.text.orEmpty())
+            filters = arrayOf(InputFilter.LengthFilter(Templates.MAX_TEXT))
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            minLines = 3
+            gravity = Gravity.TOP or Gravity.START
+        }
+        box.addView(shortcut)
+        box.addView(body)
+
+        val builder = MaterialAlertDialogBuilder(this)
+            .setTitle(
+                if (existing == null) R.string.templates_add else R.string.templates_edit
+            )
+            .setView(box)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val s = Templates.cleanShortcut(shortcut.text.toString())
+                val t = Templates.cleanText(body.text.toString())
+                when {
+                    s.isEmpty() -> toast(R.string.templates_need_shortcut)
+                    t.isEmpty() -> toast(R.string.templates_need_text)
+                    else -> {
+                        val list = prefs.templates.toMutableList()
+                        val duplicate = list.indexOfFirst {
+                            !it.shortcut.equals(existing?.shortcut, true) &&
+                                it.shortcut.equals(s, true)
+                        }
+                        when {
+                            existing == null && duplicate >= 0 ->
+                                list[duplicate] = Template(s, t)
+                            existing == null && list.size >= Templates.MAX_COUNT ->
+                                toast(R.string.templates_full)
+                            existing == null -> list.add(Template(s, t))
+                            else -> list[index!!] = Template(s, t)
+                        }
+                        prefs.templates = list
+                        refreshTemplates()
+                    }
+                }
+            }
+            .setNegativeButton(R.string.reset_cancel, null)
+
+        if (existing != null) {
+            builder.setNeutralButton(R.string.templates_delete) { _, _ ->
+                MaterialAlertDialogBuilder(this)
+                    .setTitle(R.string.templates_delete_title)
+                    .setMessage(getString(R.string.templates_delete_text, existing.shortcut))
+                    .setPositiveButton(R.string.templates_delete) { _, _ ->
+                        val list = prefs.templates.toMutableList()
+                        if (index != null && index in list.indices) list.removeAt(index)
+                        prefs.templates = list
+                        refreshTemplates()
+                    }
+                    .setNegativeButton(R.string.reset_cancel, null)
+                    .show()
+            }
+        }
+        builder.show()
+    }
+
+    private fun refreshTemplates() {
+        val count = prefs.templates.size
+        findViewById<TextView>(R.id.tvTemplatesCount).text = if (count == 0) {
+            getString(R.string.templates_empty)
+        } else {
+            getString(R.string.templates_count, count, Templates.MAX_COUNT)
+        }
+    }
+
+    private fun pickImage(uri: Uri) {
+        val blur = prefs.backgroundBlur && Images.canBlur()
+        if (Images.save(this, uri, blur)) {
+            prefs.backgroundImage = true
+            prefs.background = "image"
+            // Градиент и картинка взаимоисключающие.
+            findViewById<MaterialSwitch>(R.id.swGradient).isChecked = false
+            toast(R.string.bg_image_saved)
+        } else {
+            toast(R.string.bg_image_failed)
+        }
+        refreshImageButtons()
+        miniPreview.reloadImage()
+    }
+
+    private fun removeImage() {
+        Images.delete(this)
+        prefs.backgroundImage = false
+        if (prefs.background == "image") prefs.background = "solid"
+        refreshImageButtons()
+        miniPreview.reloadImage()
+        toast(R.string.bg_image_removed)
+    }
+
+    private fun refreshImageButtons() {
+        findViewById<Button>(R.id.btnRemoveImage).isEnabled = Images.exists(this)
+    }
+
     private fun resetLook() = with(Backup.DEFAULT) {
         prefs.width = width
         prefs.oneHand = oneHand
@@ -956,6 +1232,9 @@ class MainActivity : AppCompatActivity() {
         prefs.background = background
         prefs.keyAlpha = keyAlpha
         prefs.animations = animations
+        prefs.backgroundImage = backgroundImage
+        prefs.backgroundDim = backgroundDim
+        prefs.backgroundBlur = backgroundBlur
     }
 
     private fun resetInput() = with(Backup.DEFAULT) {
@@ -968,6 +1247,14 @@ class MainActivity : AppCompatActivity() {
         prefs.backspaceWord = backspaceWord
         prefs.langKey = langKey
         prefs.oneHandPanel = oneHandPanel
+        prefs.panelOn = panelOn
+        prefs.panelActions = Panel.parse(panelActions)
+        prefs.templates = Templates.parse(templates)
+        prefs.smartQuotes = smartQuotes
+        prefs.smartDash = smartDash
+        prefs.smartEllipsis = smartEllipsis
+        prefs.smartSpace = smartSpace
+        prefs.incognito = incognito
     }
 
     private fun resetFeel() = with(Backup.DEFAULT) {
