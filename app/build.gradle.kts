@@ -5,7 +5,7 @@ plugins {
 
 // versionName задаётся здесь, versionCode — номер запуска CI, чтобы каждая
 // следующая сборка была «новее» предыдущей и обновление ставилось поверх.
-val appVersionName = "0.8.1"
+val appVersionName = "0.9.0"
 val runNumber = (System.getenv("GITHUB_RUN_NUMBER") ?: "").toIntOrNull() ?: 0
 val buildVersionCode = if (runNumber > 0) runNumber else 1
 
@@ -74,6 +74,7 @@ android {
 
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
+    implementation("androidx.core:core-splashscreen:1.0.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("com.google.android.material:material:1.12.0")
     testImplementation("junit:junit:4.13.2")
