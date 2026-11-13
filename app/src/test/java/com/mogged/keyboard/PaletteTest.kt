@@ -87,6 +87,16 @@ class PaletteTest {
     }
 
     @Test
+    fun hintIsDimmerThanLabelAndStillReadable() {
+        val background = 0xFFE6E0E9.toInt()
+        val label = 0xFF1D1B20.toInt()
+        val hint = Palette.hint(label, background, 7.0)
+        assertTrue(Palette.contrast(hint, background) >= 7.0)
+        // Подсказка приглушена: она не совпадает с подписью, но читается.
+        assertTrue("подсказка отличается от подписи", hint != label)
+    }
+
+    @Test
     fun backgroundGradientStartsWithAccent() {
         val surface = 0xFFFEF7FF.toInt()
         val primary = 0xFF6750A4.toInt()
