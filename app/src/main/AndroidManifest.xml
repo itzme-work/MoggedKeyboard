@@ -8,6 +8,7 @@
 
     <application
         android:allowBackup="true"
+        android:enableOnBackInvokedCallback="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:name=".MoggedApp"
@@ -18,12 +19,18 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:label="@string/app_name">
+            android:label="@string/app_name"
+            android:theme="@style/Theme.Mogged.Splash">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".SandboxActivity"
+            android:exported="false"
+            android:label="@string/sandbox_title" />
 
         <service
             android:name=".MoggedKeyboardService"
