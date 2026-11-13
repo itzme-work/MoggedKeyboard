@@ -63,6 +63,9 @@ class MainActivity : AppCompatActivity() {
         /** Рейка разделов появляется на широких экранах, от 840dp. */
         const val RAIL_MIN_WIDTH_DP = 840
 
+        /** Метка точки «Свой цвет», когда свой оттенок ещё не выбран. */
+        const val CHIP_CUSTOM = "chip-custom"
+
         val SECTION_TITLES = intArrayOf(
             R.string.sec_home,
             R.string.sec_look,
@@ -110,6 +113,9 @@ class MainActivity : AppCompatActivity() {
 
     private var section = SECTION_HOME
     private var sectionsReady = false
+
+    /** Включён только вне «Главной»: иначе система сама красиво закрывает приложение. */
+    private lateinit var backCallback: OnBackPressedCallback
 
     private var pendingUpdate: UpdateManager.Update? = null
     private var busy = false
@@ -210,21 +216,17 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Предиктивный жест «назад»: с любого раздела возвращаемся на главную,
-     * а не выходим из приложения сразу. Система сама показывает анимацию.
+     * Предиктивный жест «назад»: с любого раздела возвращаемся на главную.
+     * На «Главной» обратный вызов выключен — тогда «назад» обрабатывает
+     * система и показывает свою анимацию выхода на рабочий стол.
      */
     private fun bindBack() {
-        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+        backCallback = object : OnBackPressedCallback(section != SECTION_HOME) {
             override fun handleOnBackPressed() {
-                if (section != SECTION_HOME) {
-                    showSection(SECTION_HOME)
-                } else {
-                    isEnabled = false
-                    onBackPressedDispatcher.onBackPressed()
-                    isEnabled = true
-                }
+                showSection(SECTION_HOME)
             }
-        })
+        }
+        onBackPressedDispatcher.addCallback(this, backCallback)
     }
 
     private fun showSection(index: Int, animate: Boolean = true) {
@@ -244,6 +246,10 @@ class MainActivity : AppCompatActivity() {
         }
 
         section = target
+        // На «Главной» обратный вызов выключен — «назад» уходит в систему.
+        if (::backCallback.isInitialized) {
+            backCallback.isEnabled = target != SECTION_HOME
+        }
         collapsingToolbar.title = getString(SECTION_TITLES[target])
         toolbar.title = ""
         // Новый раздел открывается сверху: заголовок снова большой.
@@ -642,6 +648,29 @@ class MainActivity : AppCompatActivity() {
                 }
             })
         }
+
+        // Свой цвет: девятая точка. Выбранный hex закрашивает её и подсвечивает,
+        // иначе она показывает цвет поверхности — «свой пока не выбран».
+        val custom = Look.parseHex(prefs.accent)
+        row.addView(
+            chip(
+                if (custom != null) prefs.accent else CHIP_CUSTOM,
+                getString(R.string.accent_custom)
+            ).apply {
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(
+                        custom ?: MaterialColors.getColor(
+                            this@MainActivity,
+                            com.google.android.material.R.attr.colorSurfaceContainerHighest,
+                            0
+                        )
+                    )
+                    setStroke(dp(2), strokeIdle)
+                }
+                setOnClickListener { showAccentDialog() }
+            }
+        )
         refreshAccentSelection()
 
         findViewById<Button>(R.id.btnCustomAccent).setOnClickListener { showAccentDialog() }
