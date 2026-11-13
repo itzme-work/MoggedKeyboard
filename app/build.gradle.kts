@@ -5,7 +5,7 @@ plugins {
 
 // versionName задаётся здесь, versionCode — номер запуска CI, чтобы каждая
 // следующая сборка была «новее» предыдущей и обновление ставилось поверх.
-val appVersionName = "0.9.1"
+val appVersionName = "0.10.0"
 val runNumber = (System.getenv("GITHUB_RUN_NUMBER") ?: "").toIntOrNull() ?: 0
 val buildVersionCode = if (runNumber > 0) runNumber else 1
 
