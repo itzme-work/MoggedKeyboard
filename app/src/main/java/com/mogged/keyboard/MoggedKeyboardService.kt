@@ -358,7 +358,9 @@ class MoggedKeyboardService : InputMethodService() {
         // версиях Android, даже там, где системных динамических цветов нет.
         val accentSeed = Look.seed(accentSetting)
         accentSeed?.let { seed ->
-            val roles = Look.roles(seed, isDarkTheme())
+            // Уровень контраста передаём в палитру: подпись и фон ролей
+            // подбираются парой, поэтому порог достижим и на полутонах.
+            val roles = Look.roles(seed, isDarkTheme(), contrastTarget)
             cSurface = roles.surface
             cOnKey = roles.onKey
             cOnKeyVariant = roles.onKeyVariant
@@ -375,17 +377,6 @@ class MoggedKeyboardService : InputMethodService() {
 
         // Клавиши берут цвета из тональных ролей выше: своих смесей нет,
         // поэтому палитра и системный контраст передаются без искажений.
-        // AMOLED: фон действительно чёрный, поверхности почти чёрные,
-        // а акценты (Enter, Shift, панели) остаются из выбранной палитры.
-        if (selTheme == "amoled") {
-            cSurface = Color.BLACK
-            cSurfaceContainerHigh = Palette.amoledSurface(cOnKey)
-            cSurfaceContainerHighest = Palette.amoledHighest(cOnKey)
-            cSecondaryContainer = Palette.amoledAccent(cPrimary)
-            cOnSecondaryContainer = cOnKey
-            cOutlineVariant = Palette.amoledOutline(cOnKey)
-        }
-
         // Приглушённый текст (подпись пробела) — отдельная роль темы.
         // С выбранным акцентом её уже посчитал Look.roles.
         if (accentSeed == null) {
@@ -393,6 +384,33 @@ class MoggedKeyboardService : InputMethodService() {
                 com.google.android.material.R.attr.colorOnSurfaceVariant,
                 Palette.blend(cOnKey, cSurface, 0.30f)
             )
+        }
+
+        // AMOLED: фон действительно чёрный, поверхности почти чёрные,
+        // а акценты (Enter, Shift, панели) остаются из выбранной палитры.
+        if (selTheme == "amoled") {
+            cSurface = Color.BLACK
+            // Пары «подпись + поверхность» тоже дотягиваем до выбранного
+            // контраста: иначе на высоком уровне AMOLED не хватило бы порога.
+            val letters = Palette.pair(
+                cOnKey, Palette.amoledSurface(cOnKey), contrastTarget
+            )
+            cOnKey = letters.first
+            cSurfaceContainerHigh = letters.second
+
+            val space = Palette.pair(
+                cOnKeyVariant, Palette.amoledHighest(cOnKey), contrastTarget
+            )
+            cOnKeyVariant = space.first
+            cSurfaceContainerHighest = space.second
+
+            val function = Palette.pair(
+                cOnSecondaryContainer, Palette.amoledAccent(cPrimary), contrastTarget
+            )
+            cOnSecondaryContainer = function.first
+            cSecondaryContainer = function.second
+
+            cOutlineVariant = Palette.amoledOutline(cOnKey)
         }
     }
 
