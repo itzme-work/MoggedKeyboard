@@ -79,11 +79,15 @@ class LookTest {
         val rounded = Palette.radii(KeyShape.ROUNDED, 12f)
         assertTrue(rounded.all { it == 12f })
 
-        // Цветок: широкие углы чередуются с узкими.
+        // Цветок: широкие углы чередуются с узкими, а противоположные
+        // углы повторяют друг друга.
         val flower = Palette.radii(KeyShape.FLOWER, 10f)
         assertTrue(flower[0] > flower[1])
+        assertTrue(flower[3] > flower[2])
         assertTrue(flower[0] == flower[4])
-        assertTrue(flower[1] == flower[3])
+        assertTrue(flower[1] == flower[5])
+        assertTrue(flower[2] == flower[6])
+        assertTrue(flower[3] == flower[7])
     }
 
     @Test
