@@ -174,4 +174,77 @@
     <string name="about_title">О приложении</string>
     <string name="about_version">Версия %1$s (versionCode %2$d)</string>
     <string name="about_text">Клавиатура работает на устройстве: набранный текст никуда не отправляется. Интернет нужен только для проверки и скачивания обновлений с GitHub — это можно выключить в настройках. Цвета берутся из системной палитры Material You (Android 12+), если включены динамические цвета; иначе действует базовая палитра Material 3. Акцент выбирается из восьми готовых или задаётся своим цветом: клавиатура строит палитру из него на любой версии Android. Тему можно выбрать вручную.\n\nДолгое нажатие на букву или знак открывает меню альтернатив: ё, ъ, акценты, валюты. На клавишах видны подсказки, их можно выключить. Кнопка «=&lt;» открывает вторую страницу символов.\n\nСвайп по пробелу настраивается: смена языка, движение курсора по 12 dp или выключен. Долгое нажатие на пробеле всё равно меняет язык. Свайп влево по Backspace стирает слово, удержание — по символу. Долгое нажатие на Enter открывает панель одной руки. Двойной пробел ставит точку и пробел.</string>
+
+    <!-- Панель инструментов -->
+    <string name="panel_title">Панель над клавишами</string>
+    <string name="panel_templates_title">Панель и шаблоны</string>
+    <string name="pref_panel">Показывать панель</string>
+    <string name="panel_hint">Кнопки выделения, буфера и курсора под рукой. Состав и порядок выбираете сами; лишние кнопки приложение скрывает, если поле их не принимает.</string>
+    <string name="panel_actions">Кнопки панели</string>
+    <string name="panel_pick_title">Кнопки панели</string>
+    <string name="panel_pick_hint">Порядок — сверху вниз, как на панели.</string>
+    <string name="panel_hide">Свернуть панель</string>
+    <string name="panel_show">Развернуть панель</string>
+    <string name="panel_all">Выделить</string>
+    <string name="panel_copy">Копир.</string>
+    <string name="panel_cut">Вырезать</string>
+    <string name="panel_paste">Вставить</string>
+    <string name="panel_undo">Отмена</string>
+    <string name="panel_redo">Повтор</string>
+    <string name="panel_left">←</string>
+    <string name="panel_right">→</string>
+    <string name="panel_one_hand">Одна рука</string>
+    <string name="panel_incognito">Инкогнито</string>
+    <string name="panel_settings">Настройки</string>
+    <string name="panel_all_title">Выделить всё</string>
+    <string name="panel_copy_title">Копировать</string>
+    <string name="panel_cut_title">Вырезать</string>
+    <string name="panel_paste_title">Вставить</string>
+    <string name="panel_undo_title">Отменить</string>
+    <string name="panel_redo_title">Повторить</string>
+    <string name="panel_left_title">Курсор влево</string>
+    <string name="panel_right_title">Курсор вправо</string>
+    <string name="panel_one_hand_title">Одна рука: слева, справа или выкл</string>
+    <string name="panel_incognito_title">Режим инкогнито</string>
+    <string name="panel_settings_title">Открыть настройки</string>
+
+    <!-- Шаблоны -->
+    <string name="templates_title">Шаблоны</string>
+    <string name="templates_hint">Сокращение заменяется текстом, когда вы ставите пробел: наберите «адрес» и пробел — появится полный адрес. До 50 шаблонов по 500 символов. В полях паролей и в инкогнито не раскрываются.</string>
+    <string name="templates_add">Добавить шаблон</string>
+    <string name="templates_edit">Изменить шаблон</string>
+    <string name="templates_empty">Шаблонов пока нет</string>
+    <string name="templates_shortcut">Сокращение</string>
+    <string name="templates_text">Текст</string>
+    <string name="templates_full">Больше 50 шаблонов нельзя</string>
+    <string name="templates_need_shortcut">Нужно сокращение без пробелов</string>
+    <string name="templates_need_text">Нужен текст шаблона</string>
+    <string name="templates_delete">Удалить</string>
+    <string name="templates_delete_title">Удалить шаблон?</string>
+    <string name="templates_delete_text">«%1$s» больше не будет раскрываться.</string>
+    <string name="templates_count">%1$d из %2$d</string>
+
+    <!-- Умная пунктуация и инкогнито -->
+    <string name="punctuation_title">Умная пунктуация</string>
+    <string name="punctuation_hint">Замены действуют сразу. Backspace после замены возвращает то, что вы набрали.</string>
+    <string name="pref_smart_quotes">Кавычки-ёлочки</string>
+    <string name="pref_smart_dash">Два дефиса — тире</string>
+    <string name="pref_smart_ellipsis">Три точки — многоточие</string>
+    <string name="pref_smart_space">Пробел после знака</string>
+    <string name="pref_smart_space_hint">«Привет,как дела» превращается в «Привет, как дела».</string>
+    <string name="pref_incognito">Режим инкогнито по умолчанию</string>
+    <string name="pref_incognito_hint">В инкогнито шаблоны и умная пунктуация выключены, а на пробеле виден замок. В полях паролей режим включается сам.</string>
+
+    <!-- Своя картинка -->
+    <string name="bg_image_title">Своя картинка</string>
+    <string name="bg_image_hint">Картинка уменьшается до 1080 px и хранится в приложении. В резервную копию она не входит.</string>
+    <string name="bg_image_pick">Выбрать картинку</string>
+    <string name="bg_image_remove">Удалить картинку</string>
+    <string name="bg_image_saved">Картинка установлена</string>
+    <string name="bg_image_failed">Не удалось прочитать картинку</string>
+    <string name="bg_image_removed">Картинка удалена</string>
+    <string name="bg_dim_label">Затемнение картинки</string>
+    <string name="bg_dim_value_short">%1$d%%</string>
+    <string name="pref_bg_blur">Размытие (Android 12+)</string>
+    <string name="bg_blur_unavailable">Размытие появится на Android 12 и новее.</string>
 </resources>
