@@ -67,6 +67,26 @@ class PaletteTest {
     }
 
     @Test
+    fun readableMovesGraduallyInsteadOfJumpingToBlack() {
+        val background = 0xFFF2F0F7.toInt()
+        val pale = 0xFF9A9AA5.toInt()
+        val fixed = Palette.readable(pale, background, 4.5)
+        assertTrue(Palette.contrast(fixed, background) >= 4.5)
+        // Скачка в чистый чёрный нет: цвет только сдвинулся к нему.
+        assertTrue("подпись не стала чистым чёрным", fixed != black)
+        assertTrue("цвет всё ещё серый", Palette.red(fixed) < Palette.red(pale))
+    }
+
+    @Test
+    fun pairReachesTargetOnMidToneBackground() {
+        // Полутоновый фон: подпись одна не спасёт, нужен сдвиг фона.
+        val mid = 0xFF8A8A8A.toInt()
+        val (label, background) = Palette.pair(mid, mid, 10.0)
+        assertTrue(Palette.contrast(label, background) >= 10.0)
+        assertTrue("фон пришлось сдвинуть", background != mid)
+    }
+
+    @Test
     fun backgroundGradientStartsWithAccent() {
         val surface = 0xFFFEF7FF.toInt()
         val primary = 0xFF6750A4.toInt()
