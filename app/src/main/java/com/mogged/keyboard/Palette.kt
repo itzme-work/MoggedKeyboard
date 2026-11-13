@@ -86,6 +86,15 @@ object Palette {
     }
 
     /**
+     * Подсказка в углу клавиши: подпись, приглушённая к фону, но не ниже порога.
+     * Одна формула для живой клавиатуры и мини-предпросмотра.
+     */
+    fun hint(label: Int, background: Int, target: Double): Int {
+        val dimmed = blend(background, label, 0.65f)
+        return readable(dimmed, background, target)
+    }
+
+    /**
      * Пара «подпись + фон», дотянутая до порога.
      *
      * Сначала подпись плавно сдвигается к чёрному или белому. Если фон
