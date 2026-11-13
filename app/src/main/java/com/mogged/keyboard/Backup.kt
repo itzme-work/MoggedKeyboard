@@ -28,7 +28,16 @@ data class Settings(
     val releaseHaptic: Boolean = false,
     val customHapticDuration: Int = 24,
     val oneHandPanel: Boolean = true,
-    val dynamicColor: Boolean = true
+    val dynamicColor: Boolean = true,
+    val accent: String = Look.ACCENT_AUTO,
+    val contrast: String = "standard",
+    val preset: String = Look.PRESET_CUSTOM,
+    val shape: String = "rounded",
+    val funcRadius: Int = 17,
+    val elevation: Int = 0,
+    val background: String = "solid",
+    val keyAlpha: Int = 100,
+    val animations: Boolean = true
 )
 
 /**
@@ -78,6 +87,10 @@ object Backup {
     private val HANDS = setOf("off", "left", "right")
     private val HAPTICS = setOf("click", "tick", "strong", "custom")
     private val SWIPES = setOf("lang", "cursor", "off")
+    private val CONTRASTS = setOf("standard", "medium", "high")
+    private val SHAPES = setOf("rounded", "square", "pill", "flower")
+    private val BACKGROUNDS = setOf("solid", "gradient")
+    private val PRESETS = Look.presets.map { it.id }.toSet() + Look.PRESET_CUSTOM
 
     /** Снимок текущих настроек. onboarded и check_updates сюда не входят. */
     fun fromPrefs(prefs: Prefs): Settings = Settings(
@@ -105,7 +118,16 @@ object Backup {
         releaseHaptic = prefs.releaseHaptic,
         customHapticDuration = prefs.customHapticDuration,
         oneHandPanel = prefs.oneHandPanel,
-        dynamicColor = prefs.dynamicColor
+        dynamicColor = prefs.dynamicColor,
+        accent = prefs.accent,
+        contrast = prefs.contrast,
+        preset = prefs.preset,
+        shape = prefs.shape,
+        funcRadius = prefs.funcRadius,
+        elevation = prefs.elevation,
+        background = prefs.background,
+        keyAlpha = prefs.keyAlpha,
+        animations = prefs.animations
     )
 
     fun applyTo(prefs: Prefs, settings: Settings) {
@@ -134,6 +156,15 @@ object Backup {
         prefs.customHapticDuration = settings.customHapticDuration
         prefs.oneHandPanel = settings.oneHandPanel
         prefs.dynamicColor = settings.dynamicColor
+        prefs.accent = settings.accent
+        prefs.contrast = settings.contrast
+        prefs.preset = settings.preset
+        prefs.shape = settings.shape
+        prefs.funcRadius = settings.funcRadius
+        prefs.elevation = settings.elevation
+        prefs.background = settings.background
+        prefs.keyAlpha = settings.keyAlpha
+        prefs.animations = settings.animations
     }
 
     fun toJson(settings: Settings): String = JSONObject().apply {
@@ -169,6 +200,16 @@ object Backup {
         put("customHapticDuration", clamp(settings.customHapticDuration, 5, 60))
         put("oneHandPanel", settings.oneHandPanel)
         put("dynamicColor", settings.dynamicColor)
+
+        put("accent", accentValue(settings.accent))
+        put("contrast", pick(settings.contrast, CONTRASTS, DEFAULT.contrast))
+        put("preset", pick(settings.preset, PRESETS, DEFAULT.preset))
+        put("shape", pick(settings.shape, SHAPES, DEFAULT.shape))
+        put("funcRadius", clamp(settings.funcRadius, 0, 28))
+        put("elevation", clamp(settings.elevation, 0, 4))
+        put("background", pick(settings.background, BACKGROUNDS, DEFAULT.background))
+        put("keyAlpha", clamp(settings.keyAlpha, 0, 100))
+        put("animations", settings.animations)
     }.toString(2)
 
     /** null — это не наша копия или файл повреждён. */
@@ -211,9 +252,25 @@ object Backup {
                 json.optInt("customHapticDuration", DEFAULT.customHapticDuration), 5, 60
             ),
             oneHandPanel = json.optBoolean("oneHandPanel", DEFAULT.oneHandPanel),
-            dynamicColor = json.optBoolean("dynamicColor", DEFAULT.dynamicColor)
+            dynamicColor = json.optBoolean("dynamicColor", DEFAULT.dynamicColor),
+            accent = accentValue(json.optString("accent", DEFAULT.accent)),
+            contrast = pick(json.optString("contrast"), CONTRASTS, DEFAULT.contrast),
+            preset = pick(json.optString("preset"), PRESETS, DEFAULT.preset),
+            shape = pick(json.optString("shape"), SHAPES, DEFAULT.shape),
+            funcRadius = clamp(json.optInt("funcRadius", DEFAULT.funcRadius), 0, 28),
+            elevation = clamp(json.optInt("elevation", DEFAULT.elevation), 0, 4),
+            background = pick(json.optString("background"), BACKGROUNDS, DEFAULT.background),
+            keyAlpha = clamp(json.optInt("keyAlpha", DEFAULT.keyAlpha), 0, 100),
+            animations = json.optBoolean("animations", DEFAULT.animations)
         )
     }
+
+    private fun accentValue(value: String): String =
+        if (value == Look.ACCENT_AUTO || Look.accent(value) != null || Look.parseHex(value) != null) {
+            value
+        } else {
+            Look.ACCENT_AUTO
+        }
 
     private fun clamp(value: Int, min: Int, max: Int): Int = value.coerceIn(min, max)
 
