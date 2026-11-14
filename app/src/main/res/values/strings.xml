@@ -185,17 +185,8 @@
     <string name="panel_pick_hint">Порядок — сверху вниз, как на панели.</string>
     <string name="panel_hide">Свернуть панель</string>
     <string name="panel_show">Развернуть панель</string>
-    <string name="panel_all">Выделить</string>
-    <string name="panel_copy">Копир.</string>
-    <string name="panel_cut">Вырезать</string>
-    <string name="panel_paste">Вставить</string>
-    <string name="panel_undo">Отмена</string>
-    <string name="panel_redo">Повтор</string>
-    <string name="panel_left">←</string>
-    <string name="panel_right">→</string>
-    <string name="panel_one_hand">Одна рука</string>
-    <string name="panel_incognito">Инкогнито</string>
-    <string name="panel_settings">Настройки</string>
+    <string name="panel_move_up">Поднять выше</string>
+    <string name="panel_move_down">Опустить ниже</string>
     <string name="panel_all_title">Выделить всё</string>
     <string name="panel_copy_title">Копировать</string>
     <string name="panel_cut_title">Вырезать</string>
@@ -226,7 +217,7 @@
 
     <!-- Умная пунктуация и инкогнито -->
     <string name="punctuation_title">Умная пунктуация</string>
-    <string name="punctuation_hint">Замены действуют сразу. Backspace после замены возвращает то, что вы набрали.</string>
+    <string name="punctuation_hint">По умолчанию всё выключено. Замены не работают в адресах, почте, путях, флагах и полях без подсказок; в английской раскладке ставятся парные лапки. Backspace после замены возвращает набранное.</string>
     <string name="pref_smart_quotes">Кавычки-ёлочки</string>
     <string name="pref_smart_dash">Два дефиса — тире</string>
     <string name="pref_smart_ellipsis">Три точки — многоточие</string>
@@ -237,7 +228,7 @@
 
     <!-- Своя картинка -->
     <string name="bg_image_title">Своя картинка</string>
-    <string name="bg_image_hint">Картинка уменьшается до 1080 px и хранится в приложении. В резервную копию она не входит.</string>
+    <string name="bg_image_hint">Картинка уменьшается до 1080 px, поворачивается по EXIF и обрезается по центру; хранится в приложении. На фото прозрачность клавиш не ниже 70 процентов, иначе подписи тонут. В резервную копию картинка не входит.</string>
     <string name="bg_image_pick">Выбрать картинку</string>
     <string name="bg_image_remove">Удалить картинку</string>
     <string name="bg_image_saved">Картинка установлена</string>
@@ -245,6 +236,5 @@
     <string name="bg_image_removed">Картинка удалена</string>
     <string name="bg_dim_label">Затемнение картинки</string>
     <string name="bg_dim_value_short">%1$d%%</string>
-    <string name="pref_bg_blur">Размытие (Android 12+)</string>
-    <string name="bg_blur_unavailable">Размытие появится на Android 12 и новее.</string>
+    <string name="pref_bg_blur">Размытие</string>
 </resources>
