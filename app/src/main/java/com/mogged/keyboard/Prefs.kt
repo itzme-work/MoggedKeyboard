@@ -210,15 +210,15 @@ class Prefs(context: Context) {
 
     /** Умная пунктуация. */
     var smartQuotes: Boolean
-        get() = store.getBoolean("smart_quotes", true)
+        get() = store.getBoolean("smart_quotes", false)
         set(value) = store.edit().putBoolean("smart_quotes", value).apply()
 
     var smartDash: Boolean
-        get() = store.getBoolean("smart_dash", true)
+        get() = store.getBoolean("smart_dash", false)
         set(value) = store.edit().putBoolean("smart_dash", value).apply()
 
     var smartEllipsis: Boolean
-        get() = store.getBoolean("smart_ellipsis", true)
+        get() = store.getBoolean("smart_ellipsis", false)
         set(value) = store.edit().putBoolean("smart_ellipsis", value).apply()
 
     var smartSpace: Boolean
