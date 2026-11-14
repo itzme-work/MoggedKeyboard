@@ -1086,8 +1086,8 @@ class MainActivity : AppCompatActivity() {
             )
             getDrawable(it.resourceId)
         }
-        minWidth = dp(44)
-        minHeight = dp(44)
+        minimumWidth = dp(44)
+        minimumHeight = dp(44)
         setPadding(dp(10), dp(10), dp(10), dp(10))
         scaleType = ImageView.ScaleType.FIT_CENTER
         setOnClickListener { action() }
