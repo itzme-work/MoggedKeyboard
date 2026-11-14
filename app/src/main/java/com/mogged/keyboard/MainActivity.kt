@@ -1,6 +1,7 @@
 package com.mogged.keyboard
 
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
@@ -15,6 +16,7 @@ import android.text.InputType
 import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.StyleSpan
+import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -23,6 +25,8 @@ import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.ScrollView
@@ -441,16 +445,8 @@ class MainActivity : AppCompatActivity() {
         bindSwitch(R.id.swBlur, prefs.backgroundBlur) {
             prefs.backgroundBlur = it
             if (Images.exists(this)) {
-                Images.applyBlur(this, it && Images.canBlur())
+                Images.applyBlur(this, it)
                 miniPreview.reloadImage()
-            }
-        }
-        if (!Images.canBlur()) {
-            prefs.backgroundBlur = false
-            findViewById<MaterialSwitch>(R.id.swBlur).apply {
-                isChecked = false
-                isEnabled = false
-                text = getString(R.string.bg_blur_unavailable)
             }
         }
         refreshImageButtons()
@@ -1032,7 +1028,7 @@ class MainActivity : AppCompatActivity() {
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             }
             line.addView(check)
-            line.addView(arrowButton("↑") {
+            line.addView(arrowButton(R.drawable.ic_arrow_up, R.string.panel_move_up) {
                 val index = working.indexOf(action)
                 if (index > 0) {
                     working.removeAt(index)
@@ -1040,7 +1036,7 @@ class MainActivity : AppCompatActivity() {
                     redraw?.invoke()
                 }
             })
-            line.addView(arrowButton("↓") {
+            line.addView(arrowButton(R.drawable.ic_arrow_down, R.string.panel_move_down) {
                 val index = working.indexOf(action)
                 if (index >= 0 && index < working.size - 1) {
                     working.removeAt(index)
@@ -1073,10 +1069,27 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun arrowButton(text: String, action: () -> Unit) = Button(this).apply {
-        this.text = text
-        minWidth = dp(40)
-        minHeight = dp(40)
+    /** Стрелки порядка — векторные иконки без текста. */
+    private fun arrowButton(icon: Int, label: Int, action: () -> Unit) = ImageButton(this).apply {
+        setImageResource(icon)
+        contentDescription = getString(label)
+        imageTintList = ColorStateList.valueOf(
+            MaterialColors.getColor(
+                this as View,
+                com.google.android.material.R.attr.colorOnSurfaceVariant
+            )
+        )
+        background = TypedValue().let {
+            theme.resolveAttribute(
+                com.google.android.material.R.attr.selectableItemBackgroundBorderless,
+                it, true
+            )
+            getDrawable(it.resourceId)
+        }
+        minWidth = dp(44)
+        minHeight = dp(44)
+        setPadding(dp(10), dp(10), dp(10), dp(10))
+        scaleType = ImageView.ScaleType.FIT_CENTER
         setOnClickListener { action() }
     }
 
@@ -1187,7 +1200,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun pickImage(uri: Uri) {
-        val blur = prefs.backgroundBlur && Images.canBlur()
+        val blur = prefs.backgroundBlur
         if (Images.save(this, uri, blur)) {
             prefs.backgroundImage = true
             prefs.background = "image"
