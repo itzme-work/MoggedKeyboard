@@ -37,19 +37,19 @@ object Panel {
     fun format(actions: List<String>): String = actions.filter { it in ACTIONS }.distinct()
         .joinToString(",")
 
-    /** Короткая подпись кнопки на панели. */
-    fun labelRes(action: String): Int = when (action) {
-        ALL -> R.string.panel_all
-        COPY -> R.string.panel_copy
-        CUT -> R.string.panel_cut
-        PASTE -> R.string.panel_paste
-        UNDO -> R.string.panel_undo
-        REDO -> R.string.panel_redo
-        LEFT -> R.string.panel_left
-        RIGHT -> R.string.panel_right
-        ONE_HAND -> R.string.panel_one_hand
-        INCOGNITO -> R.string.panel_incognito
-        else -> R.string.panel_settings
+    /** Векторная иконка кнопки: панель не рисует подписи текстом. */
+    fun iconRes(action: String): Int = when (action) {
+        ALL -> R.drawable.ic_panel_select_all
+        COPY -> R.drawable.ic_panel_copy
+        CUT -> R.drawable.ic_panel_cut
+        PASTE -> R.drawable.ic_panel_paste
+        UNDO -> R.drawable.ic_panel_undo
+        REDO -> R.drawable.ic_panel_redo
+        LEFT -> R.drawable.ic_panel_left
+        RIGHT -> R.drawable.ic_panel_right
+        ONE_HAND -> R.drawable.ic_panel_one_hand
+        INCOGNITO -> R.drawable.ic_panel_incognito
+        else -> R.drawable.ic_panel_settings
     }
 
     /** Полное название для списка настройки и озвучки. */
