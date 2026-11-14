@@ -27,8 +27,9 @@ class PanelTest {
             listOf(Panel.COPY, Panel.CUT),
             Panel.parse("copy,cut,copy,cut,copy")
         )
+        // format() — это строка для настроек, поэтому и сравниваем строку.
         assertEquals(
-            listOf(Panel.COPY, Panel.CUT),
+            "copy,cut",
             Panel.format(listOf(Panel.COPY, Panel.CUT, Panel.COPY))
         )
     }
@@ -39,10 +40,7 @@ class PanelTest {
             listOf(Panel.COPY, Panel.PASTE),
             Panel.parse("copy,teleport,paste,delete_all")
         )
-        assertEquals(
-            listOf(Panel.COPY),
-            Panel.format(listOf(Panel.COPY, "teleport"))
-        )
+        assertEquals("copy", Panel.format(listOf(Panel.COPY, "teleport")))
     }
 
     @Test
