@@ -118,6 +118,21 @@ class MiniKeyboardPreview @JvmOverloads constructor(
     private var photo: Bitmap? = null
     private var photoLoaded = false
 
+    /** Средний тон фото с затемнением — фон под полупрозрачными клавишами. */
+    private var photoBase = 0
+    private var photoBaseFor: Bitmap? = null
+    private var photoBaseDim = -1
+
+    /** Средний тон фото с затемнением: от него считаются подписи. */
+    private fun photoBaseColor(image: Bitmap): Int {
+        if (image !== photoBaseFor || prefs.backgroundDim != photoBaseDim) {
+            photoBase = Images.averageColor(image, prefs.backgroundDim)
+            photoBaseFor = image
+            photoBaseDim = prefs.backgroundDim
+        }
+        return photoBase
+    }
+
     /** Перерисовать после изменения настроек вида. */
     fun refresh() {
         invalidate()
@@ -155,14 +170,19 @@ class MiniKeyboardPreview @JvmOverloads constructor(
             prefs.funcRadius
         }
         val elevation = if (preset != null) preset.elevation else prefs.elevation
-        val alpha = if (preset != null) 100 else prefs.keyAlpha
+        val gradient = preset == null && prefs.background == "gradient"
+        val photoOn = preset == null && prefs.background == "image"
+        // На фото клавиши не прозрачнее 70%, иначе подписи тонут в светлом снимке.
+        val alpha = when {
+            preset != null -> 100
+            photoOn -> prefs.keyAlpha.coerceAtLeast(70)
+            else -> prefs.keyAlpha
+        }
         val target = if (preset != null) {
             Contrast.STANDARD.target
         } else {
             Contrast.parse(prefs.contrast).target
         }
-        val gradient = preset == null && prefs.background == "gradient"
-        val photoOn = preset == null && prefs.background == "image"
 
         // Фон: своя картинка, градиент от акцента или однотонный.
         // Углы скруглены, чтобы карточки пресетов выглядели аккуратно.
@@ -171,6 +191,8 @@ class MiniKeyboardPreview @JvmOverloads constructor(
         rect.set(0f, 0f, w, h)
         path.addRoundRect(rect, backgroundRadius, backgroundRadius, Path.Direction.CW)
         val image = if (photoOn) photo() else null
+        // Подписи на полупрозрачных клавишах считаются от того, что под ними.
+        val under = if (image != null) photoBaseColor(image) else colors.surface
         if (image != null) {
             drawPhoto(canvas, image, w, h, backgroundRadius)
         } else if (gradient) {
@@ -228,7 +250,7 @@ class MiniKeyboardPreview @JvmOverloads constructor(
                     PRIMARY -> colors.primaryBg
                     else -> colors.letterBg
                 }
-                val effectiveBg = Palette.blend(colors.surface, bg, alpha / 100f)
+                val effectiveBg = Palette.blend(under, bg, alpha / 100f)
                 val radiusPx = dp(
                     if (key.kind == LETTER) radiusDp.toFloat() else funcRadiusDp.toFloat()
                 )
