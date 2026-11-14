@@ -1394,12 +1394,14 @@ class MoggedKeyboardService : InputMethodService() {
     }
 
     /** Текст по обе стороны каретки: достаточно, чтобы заметить отмену. */
-    private fun snippet(ic: InputConnection): String? = try {
-        val left = ic.getTextBeforeCursor(32, 0)?.toString() ?: return null
-        val right = ic.getTextAfterCursor(32, 0)?.toString() ?: return null
-        left + "|" + right
-    } catch (t: Throwable) {
-        null
+    private fun snippet(ic: InputConnection): String? {
+        return try {
+            val left = ic.getTextBeforeCursor(32, 0)?.toString() ?: return null
+            val right = ic.getTextAfterCursor(32, 0)?.toString() ?: return null
+            left + "|" + right
+        } catch (t: Throwable) {
+            null
+        }
     }
 
     private fun hideUndo() {
