@@ -10,7 +10,6 @@ import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.Typeface
-import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
@@ -32,7 +31,7 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
-import android.view.inputmethod.ExtractedTextRequest
+import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
 import android.view.animation.DecelerateInterpolator
 import android.view.animation.OvershootInterpolator
@@ -71,6 +70,9 @@ class MoggedKeyboardService : InputMethodService() {
     private var capSentences = true
     private var capWords = false
     private var isSensitive = false
+
+    /** inputType текущего поля: по нему решается, нужны ли замены. */
+    private var editorInputType = 0
     private var extraLeft = ","
     private var extraRight = "."
     private var enterIcon = R.drawable.ic_enter
@@ -124,6 +126,13 @@ class MoggedKeyboardService : InputMethodService() {
     private var undoUnsupported = false
     private var bgDim = 40
     private var backgroundBitmap: Bitmap? = null
+
+    /** Цвет под полупрозрачными клавишами: поверхность или средний тон фото. */
+    private var bgBase = 0
+
+    /** Для какой картинки и затемнения посчитан [bgBase]. */
+    private var bgBaseFor: Bitmap? = null
+    private var bgBaseDim = -1
 
     /** Тема, с которой построен текущий input view. */
     private var builtTheme: String? = null
@@ -477,6 +486,8 @@ class MoggedKeyboardService : InputMethodService() {
     /** Фон клавиатуры: однотонный или градиент от акцента к поверхности. */
     private fun applyBackground() {
         val view = root ?: return
+        // Подписи на полупрозрачных клавишах считаются от того, что под ними.
+        bgBase = cSurface
         if (backgroundStyle == "image") {
             val image = imageBackground()
             if (image != null) {
@@ -499,14 +510,23 @@ class MoggedKeyboardService : InputMethodService() {
         val bitmap = backgroundBitmap ?: Images.bitmap(this)?.also { backgroundBitmap = it }
         if (bitmap == null) return null
 
-        val image = BitmapDrawable(resources, bitmap).apply {
-            gravity = Gravity.FILL
-            isFilterBitmap = true
-        }
+        // Центр-кроп: пропорции сохраняются, лишнее уходит за край.
+        val image = Images.crop(bitmap)
         val dim = ColorDrawable(
             Color.argb((bgDim * 255 / 100).coerceIn(0, 255), 0, 0, 0)
         )
+        bgBase = baseColor(bitmap)
         return LayerDrawable(arrayOf(image, dim))
+    }
+
+    /** Средний цвет фото с затемнением — считается один раз на картинку. */
+    private fun baseColor(bitmap: Bitmap): Int {
+        if (bitmap !== bgBaseFor || bgDim != bgBaseDim) {
+            bgBaseFor = bitmap
+            bgBaseDim = bgDim
+            bgBase = Images.averageColor(bitmap, bgDim)
+        }
+        return bgBase
     }
 
     private fun render() {
@@ -598,6 +618,7 @@ class MoggedKeyboardService : InputMethodService() {
             isClickable = false
             importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
+        if (def == Key.Space) spaceLock(main, labelColor(def))
         frame.addView(
             main,
             FrameLayout.LayoutParams(
@@ -663,11 +684,7 @@ class MoggedKeyboardService : InputMethodService() {
         // Фон меняем в самом drawable: смена Shift не трогает разметку.
         val ripple = holder.frame.background as? RippleDrawable
         val background = backgroundFor(def)
-        val shown = if (keyAlpha >= 100) {
-            background
-        } else {
-            Palette.withAlpha(background, keyAlpha / 100f)
-        }
+        val shown = shownKeyColor(background)
         (ripple?.getDrawable(0) as? GradientDrawable)?.setColor(shown)
         ripple?.setColor(ColorStateList.valueOf(Palette.ripple(background, cPrimary, cOnPrimary)))
 
@@ -677,6 +694,7 @@ class MoggedKeyboardService : InputMethodService() {
         holder.text.typeface = letterTypeface(def)
 
         holder.hint?.setTextColor(hintColor(def))
+        if (def == Key.Space) spaceLock(holder.text, fg)
 
         holder.icon?.let { view ->
             view.setImageResource(iconFor(def))
@@ -990,12 +1008,11 @@ class MoggedKeyboardService : InputMethodService() {
     }
 
     private fun keyBackground(color: Int, radius: Float): Drawable {
-        val shown = if (keyAlpha >= 100) color else Palette.withAlpha(color, keyAlpha / 100f)
         val radii = Palette.radii(keyShape, radius)
         val content = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadii = radii
-            setColor(shown)
+            setColor(shownKeyColor(color))
             // Контур клавиш: тонкая обводка цветом outlineVariant.
             if (keyOutline) setStroke(dp(1), cOutlineVariant)
         }
@@ -1256,7 +1273,7 @@ class MoggedKeyboardService : InputMethodService() {
         val bar = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(2), 0, dp(2), 0)
+            setPadding(dp(2), dp(2), dp(2), dp(2))
         }
 
         if (panelExpanded) {
@@ -1266,7 +1283,10 @@ class MoggedKeyboardService : InputMethodService() {
                     0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f
                 )
             }
-            val row = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+            val row = LinearLayout(ctx).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
             panelActions
                 .filter { it != Panel.UNDO && it != Panel.REDO || !undoUnsupported }
                 .forEach { action -> row.addView(panelButton(action)) }
@@ -1279,44 +1299,51 @@ class MoggedKeyboardService : InputMethodService() {
             )
         }
 
+        // Шеврон — векторная иконка в такой же тональной кнопке, как остальные.
         bar.addView(
-            TextView(ctx).apply {
-                text = if (panelExpanded) "▾" else "▸"
-                // Кегль панели не зависит от пересчёта клавиш: панель
-                // строится раньше, чем известна высота ряда.
-                textSize = dp(14).toFloat()
-                setTextColor(Palette.readable(cOnKeyVariant, cSurface, contrastTarget))
-                gravity = Gravity.CENTER
-                minWidth = dp(40)
-                minHeight = dp(32)
-                contentDescription = getString(
-                    if (panelExpanded) R.string.panel_hide else R.string.panel_show
-                )
-                setOnClickListener {
-                    panelExpanded = !panelExpanded
-                    setInputView(buildInputView())
-                }
+            panelIconButton(
+                if (panelExpanded) R.drawable.ic_chevron_down else R.drawable.ic_chevron_up,
+                getString(if (panelExpanded) R.string.panel_hide else R.string.panel_show)
+            ) {
+                panelExpanded = !panelExpanded
+                setInputView(buildInputView())
             },
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
+            LinearLayout.LayoutParams(dp(36), dp(32)).apply { marginStart = dp(4) }
         )
         return bar
     }
 
-    private fun panelButton(action: String): TextView = TextView(ctx).apply {
-        text = getString(Panel.labelRes(action))
-        textSize = dp(13).toFloat()
-        setTextColor(Palette.readable(cOnKey, cSurface, contrastTarget))
-        gravity = Gravity.CENTER
-        minHeight = dp(32)
-        minWidth = dp(44)
-        setPadding(dp(10), 0, dp(10), 0)
-        includeFontPadding = false
-        contentDescription = getString(Panel.titleRes(action))
-        setOnClickListener { runPanelAction(action) }
+    private fun panelButton(action: String): ImageView {
+        val view = panelIconButton(
+            Panel.iconRes(action),
+            getString(Panel.titleRes(action))
+        ) { runPanelAction(action) }
+        view.layoutParams = LinearLayout.LayoutParams(dp(44), dp(32)).apply {
+            marginStart = dp(4)
+        }
+        return view
     }
+
+    /**
+     * Тональная кнопка панели: векторная иконка в скруглённом фоне
+     * secondaryContainer с волной нажатия — как у функциональных клавиш.
+     */
+    private fun panelIconButton(icon: Int, description: String, onClick: () -> Unit): ImageView =
+        ImageView(ctx).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setImageResource(icon)
+            imageTintList = ColorStateList.valueOf(
+                Palette.readable(cOnSecondaryContainer, cSecondaryContainer, contrastTarget)
+            )
+            background = keyBackground(
+                cSecondaryContainer,
+                dp(keyRadiusDp.coerceAtMost(16)).toFloat()
+            )
+            setPadding(dp(6), dp(4), dp(6), dp(4))
+            isClickable = true
+            contentDescription = description
+            setOnClickListener { onClick() }
+        }
 
     private fun runPanelAction(action: String) {
         tap()
@@ -1355,26 +1382,31 @@ class MoggedKeyboardService : InputMethodService() {
      */
     private fun tryUndo(shift: Boolean) {
         val ic = currentInputConnection ?: return
-        val request = ExtractedTextRequest()
-        val before = try {
-            ic.getExtractedText(request, 0)?.text?.toString()
-        } catch (t: Throwable) {
-            null
-        }
+        // Сравниваем только кусок вокруг каретки: не тянем весь текст поля.
+        val before = snippet(ic) ?: run { hideUndo(); return }
         sendCtrl(KeyEvent.KEYCODE_Z, shift)
 
-        if (before == null) return
         handler.postDelayed({
-            val after = try {
-                currentInputConnection?.getExtractedText(request, 0)?.text?.toString()
-            } catch (t: Throwable) {
-                null
-            }
-            if (before == after && !undoUnsupported) {
-                undoUnsupported = true
-                setInputView(buildInputView())
-            }
+            val after = currentInputConnection?.let { snippet(it) }
+            // null — поле не отдаёт текст: кнопка молчала бы, убираем её.
+            if (after == null || after == before) hideUndo()
         }, 80)
+    }
+
+    /** Текст по обе стороны каретки: достаточно, чтобы заметить отмену. */
+    private fun snippet(ic: InputConnection): String? = try {
+        val left = ic.getTextBeforeCursor(32, 0)?.toString() ?: return null
+        val right = ic.getTextAfterCursor(32, 0)?.toString() ?: return null
+        left + "|" + right
+    } catch (t: Throwable) {
+        null
+    }
+
+    private fun hideUndo() {
+        if (!undoUnsupported) {
+            undoUnsupported = true
+            setInputView(buildInputView())
+        }
     }
 
     private fun sendCtrl(keyCode: Int, shift: Boolean) {
@@ -1404,20 +1436,38 @@ class MoggedKeyboardService : InputMethodService() {
         Lang.EN -> "English"
     }
 
-    /** Подпись пробела: язык, в инкогнито — ещё и замок. */
-    private fun spaceLabel(): String =
-        if (isIncognitoNow()) "${langName()} · 🔒" else langName()
-
+    /** Подпись пробела: язык. Замок в инкогнито — отдельной векторной иконкой. */
     private fun label(def: Key): String = when (def) {
         // Буквы показываем так, как они будут введены: с учётом Shift и Caps.
         is Key.Char -> CapsPolicy.apply(def.text, shift)
         // Функциональные клавиши рисуются иконкой.
         Key.Shift, Key.Backspace, Key.Enter, Key.LangKey -> ""
         // Пробел подписан языком, приглушённым цветом.
-        Key.Space -> spaceLabel()
+        Key.Space -> langName()
         Key.ToSymbols -> "?123"
         Key.ToSymbols2 -> "=<"
         Key.ToLetters -> "ABC"
+    }
+
+    /**
+     * Замок на пробеле в инкогнито: векторная иконка после названия языка,
+     * а не эмодзи — иначе на клавиатуре появляется цветной значок.
+     */
+    private fun spaceLock(view: TextView, color: Int) {
+        val lock = if (isIncognitoNow()) {
+            ctx.getDrawable(R.drawable.ic_panel_incognito)?.mutate()
+        } else {
+            null
+        }
+        if (lock == null) {
+            view.setCompoundDrawablesRelative(null, null, null, null)
+            return
+        }
+        val size = dp(14)
+        lock.setBounds(0, 0, size, size)
+        lock.setTint(color)
+        view.compoundDrawablePadding = dp(5)
+        view.setCompoundDrawablesRelative(null, null, lock, null)
     }
 
     private fun describe(def: Key): String = when (def) {
@@ -1509,16 +1559,30 @@ class MoggedKeyboardService : InputMethodService() {
     /** Фон клавиши с учётом прозрачности — по нему считается контраст подписи. */
     private fun effectiveBackground(def: Key): Int {
         val background = backgroundFor(def)
-        return if (keyAlpha >= 100) {
+        val alpha = shownKeyAlpha()
+        return if (alpha >= 100) {
             background
         } else {
-            Palette.blend(cSurface, background, keyAlpha / 100f)
+            Palette.blend(bgBase, background, alpha / 100f)
         }
     }
 
     /** Подпись не ниже выбранного контраста к настоящему фону клавиши. */
     private fun labelColor(def: Key): Int =
         Palette.readable(colorFor(def), effectiveBackground(def), contrastTarget)
+
+    /**
+     * На картинке клавиши не прозрачнее 70%: иначе подписи тонут в светлом
+     * фото, а контраст считается от среднего тона снимка, а не от поверхности.
+     */
+    private fun shownKeyAlpha(): Int =
+        if (backgroundStyle == "image") keyAlpha.coerceAtLeast(70) else keyAlpha
+
+    /** Цвет клавиши с учётом выбранной прозрачности. */
+    private fun shownKeyColor(color: Int): Int {
+        val alpha = shownKeyAlpha()
+        return if (alpha >= 100) color else Palette.withAlpha(color, alpha / 100f)
+    }
 
     /**
      * Подсказка в углу приглушена, но тоже не ниже выбранного контраста:
@@ -1560,10 +1624,18 @@ class MoggedKeyboardService : InputMethodService() {
         if (raw == " " && !isIncognitoNow() && expandTemplate()) return
 
         val before = ic.getTextBeforeCursor(8, 0)?.toString().orEmpty()
-        val smart = !isSensitive && !isIncognitoNow() && raw.length == 1
+        // Замены не работают в паролях, числах, адресах, e-mail, полях без
+        // подсказок и там, где набирают код или путь.
+        val smart = raw.length == 1 &&
+            !Punctuation.protectedField(editorInputType, isIncognitoNow()) &&
+            !Punctuation.codeLike(before)
 
-        // Умная пунктуация: ёлочки, тире, многоточие.
-        val swap = if (smart) Punctuation.swap(rules, raw, before) else null
+        // Умная пунктуация: ёлочки в русской раскладке, “лапки” в английской.
+        val swap = if (smart) {
+            Punctuation.swap(rules, raw, before, lang == Lang.RU)
+        } else {
+            null
+        }
         if (swap != null) {
             if (swap.deleteBefore > 0) ic.deleteSurroundingText(swap.deleteBefore, 0)
             ic.commitText(swap.insert, 1)
@@ -1607,11 +1679,14 @@ class MoggedKeyboardService : InputMethodService() {
         if (word.isEmpty()) return false
 
         val template = Templates.match(word, templates) ?: return false
+        val space = if (template.text.endsWith(" ")) "" else " "
+        val committed = template.text + space
         ic.deleteSurroundingText(word.length, 0)
-        ic.commitText(template.text, 1)
-        if (!template.text.endsWith(" ")) ic.commitText(" ", 1)
+        ic.commitText(committed, 1)
 
-        pendingSwap = null
+        // Backspace сразу после раскрытия возвращает сокращение, а не ест
+        // весь вставленный текст по букве.
+        pendingSwap = Swap(committed.length, committed, word + " ")
         lastChar = ' '
         sentenceStart = template.text.lastOrNull()?.let { it in ".!?…" } ?: true
         if (canAutoCapitalize() && sentenceStart) shift = ShiftState.ONCE
@@ -1840,6 +1915,7 @@ class MoggedKeyboardService : InputMethodService() {
 
         val cls = type and InputType.TYPE_MASK_CLASS
         val variation = type and InputType.TYPE_MASK_VARIATION
+        editorInputType = type
 
         capSentences = (type and InputType.TYPE_TEXT_FLAG_CAP_SENTENCES) != 0
         capWords = (type and InputType.TYPE_TEXT_FLAG_CAP_WORDS) != 0
