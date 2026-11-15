@@ -34,13 +34,22 @@ jobs:
           CHANGELOG=$(sed -n 's/.*const val VERSION = "\([^"]*\)".*/\1/p' \
             app/src/main/java/com/mogged/keyboard/Changelog.kt | head -1)
           RELEASE=$(sed -n 's/.*"versionName": *"\([^"]*\)".*/\1/p' release.json | head -1)
+          CLAUDE=$(grep -m1 -oE 'Версия: [0-9]+\.[0-9]+\.[0-9]+' CLAUDE.md | sed 's/.*: *//')
 
           echo "Gradle:    $GRADLE"
           echo "Changelog: $CHANGELOG"
           echo "release:   $RELEASE"
+          echo "CLAUDE.md: $CLAUDE"
 
           if [ -z "$GRADLE" ] || [ "$GRADLE" != "$CHANGELOG" ] || [ "$GRADLE" != "$RELEASE" ]; then
             echo "::error::Версии не совпадают: '$GRADLE' / '$CHANGELOG' / '$RELEASE'"
+            exit 1
+          fi
+
+          # CLAUDE.md — карта проекта, в нём «Состояние» с версией. Разошлось —
+          # значит документацию забыли обновить вместе с релизом.
+          if [ -z "$CLAUDE" ] || [ "$GRADLE" != "$CLAUDE" ]; then
+            echo "::error::Версия в CLAUDE.md ('$CLAUDE') не совпадает с appVersionName ('$GRADLE')"
             exit 1
           fi
 
