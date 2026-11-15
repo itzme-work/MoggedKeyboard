@@ -1,5 +1,7 @@
 package com.mogged.keyboard
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Typeface
@@ -15,6 +17,7 @@ import android.text.InputFilter
 import android.text.InputType
 import android.text.SpannableStringBuilder
 import android.text.Spanned
+import android.text.TextUtils
 import android.text.style.StyleSpan
 import android.util.TypedValue
 import android.view.Gravity
@@ -37,6 +40,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.core.widget.NestedScrollView
+import androidx.core.widget.doAfterTextChanged
 import androidx.transition.TransitionManager
 import com.google.android.material.appbar.AppBarLayout
 import com.google.android.material.appbar.CollapsingToolbarLayout
@@ -473,6 +477,26 @@ class MainActivity : AppCompatActivity() {
         bindSwitch(R.id.swSmartEllipsis, prefs.smartEllipsis) { prefs.smartEllipsis = it }
         bindSwitch(R.id.swSmartSpace, prefs.smartSpace) { prefs.smartSpace = it }
         bindSwitch(R.id.swIncognito, prefs.incognito) { prefs.incognito = it }
+        bindSwitch(R.id.swClip, prefs.clipHistory) { prefs.clipHistory = it }
+
+        val clipGroup = findViewById<MaterialButtonToggleGroup>(R.id.clipRetentionGroup)
+        clipGroup.check(
+            when (prefs.clipRetention) {
+                ClipboardHistory.RETENTION_HOUR -> R.id.clipHour
+                ClipboardHistory.RETENTION_NEVER -> R.id.clipNever
+                else -> R.id.clipDay
+            }
+        )
+        clipGroup.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (!isChecked) return@addOnButtonCheckedListener
+            prefs.clipRetention = when (checkedId) {
+                R.id.clipHour -> ClipboardHistory.RETENTION_HOUR
+                R.id.clipNever -> ClipboardHistory.RETENTION_NEVER
+                else -> ClipboardHistory.RETENTION_DAY
+            }
+        }
+        findViewById<Button>(R.id.btnClipOpen).setOnClickListener { showClipHistory() }
+        findViewById<Button>(R.id.btnClipClear).setOnClickListener { confirmClipClear() }
         findViewById<Button>(R.id.btnPanelActions).setOnClickListener { showPanelDialog() }
         findViewById<Button>(R.id.btnTemplates).setOnClickListener { showTemplates() }
 
@@ -1186,6 +1210,170 @@ class MainActivity : AppCompatActivity() {
         setOnClickListener { action() }
     }
 
+    // ── история буфера ───────────────────────────────────────
+    /**
+     * Просмотр и поиск истории из настроек: панель клавиатуры показывает
+     * быстрый список, а искать удобнее здесь. Тап копирует запись обратно
+     * в буфер, долгое нажатие закрепляет или удаляет.
+     */
+    private fun showClipHistory() {
+        val list = ClipStore.load(this)
+        if (ClipboardHistory.prune(list, System.currentTimeMillis(), prefs.clipRetention)) {
+            saveClips(list)
+        }
+
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(4), dp(20), 0)
+        }
+
+        val muted = MaterialColors.getColor(
+            this, com.google.android.material.R.attr.colorOnSurfaceVariant, 0
+        )
+        if (!prefs.clipHistory) {
+            box.addView(TextView(this).apply {
+                text = getString(R.string.clip_history_off)
+                setTextColor(muted)
+                setPadding(0, dp(4), 0, dp(8))
+            })
+        }
+
+        val search = EditText(this).apply {
+            hint = getString(R.string.clip_search_hint)
+            singleLine = true
+            inputType = InputType.TYPE_CLASS_TEXT
+            setPadding(0, dp(8), 0, dp(8))
+        }
+        box.addView(search)
+
+        val listBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val scroll = ScrollView(this).apply { addView(listBox) }
+        box.addView(
+            scroll,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(320)
+            )
+        )
+
+        fun render() {
+            listBox.removeAllViews()
+            val found = ClipboardHistory.search(list, search.text.toString())
+            if (found.isEmpty()) {
+                listBox.addView(TextView(this).apply {
+                    text = getString(
+                        if (list.isEmpty()) R.string.clip_open_empty else R.string.clip_search_empty
+                    )
+                    setTextColor(muted)
+                    setPadding(0, dp(16), 0, dp(16))
+                })
+                return
+            }
+            found.forEach { entry ->
+                listBox.addView(clipRow(list, entry) { render() })
+            }
+        }
+
+        search.doAfterTextChanged { render() }
+        render()
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.panel_history_title)
+            .setView(box)
+            .setPositiveButton(R.string.clip_close, null)
+            .show()
+    }
+
+    private fun clipRow(
+        list: MutableList<ClipEntry>,
+        entry: ClipEntry,
+        refresh: () -> Unit
+    ): View {
+        val onSurface = MaterialColors.getColor(
+            this, com.google.android.material.R.attr.colorOnSurface, 0
+        )
+        val muted = MaterialColors.getColor(
+            this, com.google.android.material.R.attr.colorOnSurfaceVariant, 0
+        )
+
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(8), 0, dp(8))
+            isClickable = true
+            isLongClickable = true
+        }
+
+        row.addView(TextView(this).apply {
+            text = entry.text.replace('\n', ' ')
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+            setTextColor(onSurface)
+        })
+        row.addView(TextView(this).apply {
+            val time = ClipTime.label(this@MainActivity, entry.time)
+            text = if (entry.pinned) getString(R.string.clip_meta_pinned, time) else time
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTextColor(muted)
+        })
+
+        row.setOnClickListener {
+            val manager = getSystemService(ClipboardManager::class.java) ?: return@setOnClickListener
+            manager.setPrimaryClip(
+                ClipData.newPlainText(getString(R.string.clip_title), entry.text)
+            )
+            toast(R.string.clip_copied)
+        }
+
+        row.setOnLongClickListener {
+            MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.panel_history_title)
+                .setItems(
+                    arrayOf(
+                        getString(if (entry.pinned) R.string.clip_unpin else R.string.clip_pin),
+                        getString(R.string.clip_delete)
+                    )
+                ) { _, which ->
+                    val index = list.indexOf(entry)
+                    if (index < 0) return@setItems
+                    if (which == 0) {
+                        if (ClipboardHistory.togglePin(list, index)) {
+                            saveClips(list)
+                            refresh()
+                        } else {
+                            toast(R.string.clip_pin_limit)
+                        }
+                    } else {
+                        ClipboardHistory.remove(list, index)
+                        saveClips(list)
+                        refresh()
+                    }
+                }
+                .show()
+            true
+        }
+        return row
+    }
+
+    /** Сохранить историю и дать клавиатуре понять, что кэш в памяти устарел. */
+    private fun saveClips(list: List<ClipEntry>) {
+        ClipStore.save(this, list)
+        prefs.clipEpoch += 1
+    }
+
+    /** «Очистить всё»: файл и ключ удаляются, восстановить историю нельзя. */
+    private fun confirmClipClear() {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.clip_clear_title)
+            .setMessage(R.string.clip_clear_text)
+            .setNegativeButton(R.string.reset_cancel, null)
+            .setPositiveButton(R.string.clip_clear) { _, _ ->
+                ClipStore.clear(this)
+                prefs.clipEpoch += 1
+                toast(R.string.clip_clear_done)
+            }
+            .show()
+    }
+
     private fun showTemplates() {
         val list = prefs.templates
         val items = ArrayList<String>()
@@ -1422,6 +1610,8 @@ class MainActivity : AppCompatActivity() {
         prefs.smartEllipsis = smartEllipsis
         prefs.smartSpace = smartSpace
         prefs.incognito = incognito
+        prefs.clipHistory = clipHistory
+        prefs.clipRetention = clipRetention
     }
 
     private fun resetFeel() = with(Backup.DEFAULT) {
