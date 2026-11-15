@@ -69,7 +69,7 @@ object Backup {
     val DEFAULT = Settings(
         width = 100,
         oneHand = "off",
-        height = 280,
+        height = Widths.PHONE_DEFAULT_HEIGHT_DP,
         keyRadius = 11,
         theme = "system",
         hints = true,
@@ -206,7 +206,8 @@ object Backup {
 
         put("width", Widths.percent(settings.width))
         put("oneHand", pick(settings.oneHand, HANDS, DEFAULT.oneHand))
-        put("height", clamp(settings.height, 220, 340))
+        // Верхняя граница — планшетная: экран при импорте ещё неизвестен.
+        put("height", clamp(settings.height, Widths.MIN_HEIGHT_DP, Widths.TABLET_MAX_HEIGHT_DP))
         put("keyRadius", clamp(settings.keyRadius, 0, 20))
         put("theme", pick(settings.theme, THEMES, DEFAULT.theme))
 
@@ -271,7 +272,11 @@ object Backup {
         return Settings(
             width = clamp(json.optInt("width", DEFAULT.width), Widths.MIN_PERCENT, 100),
             oneHand = pick(json.optString("oneHand"), HANDS, DEFAULT.oneHand),
-            height = clamp(json.optInt("height", DEFAULT.height), 220, 340),
+            height = clamp(
+                json.optInt("height", DEFAULT.height),
+                Widths.MIN_HEIGHT_DP,
+                Widths.TABLET_MAX_HEIGHT_DP
+            ),
             keyRadius = clamp(json.optInt("keyRadius", DEFAULT.keyRadius), 0, 20),
             theme = pick(json.optString("theme"), THEMES, DEFAULT.theme),
             hints = json.optBoolean("hints", DEFAULT.hints),
