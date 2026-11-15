@@ -2,6 +2,9 @@ package com.mogged.keyboard
 
 import android.annotation.SuppressLint
 import android.animation.ValueAnimator
+import android.content.ClipData
+import android.content.ClipDescription
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
@@ -23,6 +26,7 @@ import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.text.InputType
+import android.text.TextUtils
 import android.view.ContextThemeWrapper
 import android.view.Gravity
 import android.view.KeyEvent
@@ -40,7 +44,9 @@ import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.PopupWindow
+import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.google.android.material.color.DynamicColors
@@ -151,6 +157,23 @@ class MoggedKeyboardService : InputMethodService() {
     private var previewPopup: PopupWindow? = null
     private var altPopup: PopupWindow? = null
     private var oneHandPopup: PopupWindow? = null
+    private var clipPopup: PopupWindow? = null
+    private var clipPopupAnchor: View? = null
+
+    // ── история буфера ───────────────────────────────────────
+    private var clipEnabled = false
+    private var clipRetention = ClipboardHistory.RETENTION_DAY
+    private var clips: MutableList<ClipEntry> = mutableListOf()
+    private var clipsLoaded = false
+    private var clipEpochSeen = -1
+    private var clipWatching = false
+    private var inputActive = false
+
+    /** Была ли кнопка истории видна при сборке панели. */
+    private var builtClipVisible = true
+
+    private val clipWatcher =
+        ClipboardManager.OnPrimaryClipChangedListener { captureClip() }
 
     private val handler = Handler(Looper.getMainLooper())
     private var repeater: Runnable? = null
@@ -189,7 +212,9 @@ class MoggedKeyboardService : InputMethodService() {
         prefs.store.unregisterOnSharedPreferenceChangeListener(prefListener)
         dismissAlternatives()
         dismissOneHandPanel()
+        dismissHistory()
         hidePreview()
+        stopClipWatch()
         clickSound?.release()
         clickSound = null
         super.onDestroy()
@@ -208,9 +233,11 @@ class MoggedKeyboardService : InputMethodService() {
             // В следующий раз клавиатура соберётся заново.
             builtTheme = null
             loadPrefs()
+            syncClipWatch()
             return
         }
         loadPrefs()
+        syncClipWatch()
         setInputView(buildInputView())
     }
 
@@ -260,6 +287,15 @@ class MoggedKeyboardService : InputMethodService() {
         templates = prefs.templates
         bgDim = prefs.backgroundDim
         backgroundBitmap = null
+
+        clipEnabled = prefs.clipHistory
+        clipRetention = prefs.clipRetention
+        // «Очистить всё» в настройках стирает файл: кэш в памяти больше не годится.
+        val epoch = prefs.clipEpoch
+        if (epoch != clipEpochSeen) {
+            clipEpochSeen = epoch
+            clipsLoaded = false
+        }
     }
 
     // ── создание разметки клавиатуры ─────────────────────────
@@ -270,9 +306,11 @@ class MoggedKeyboardService : InputMethodService() {
 
     private fun buildInputView(): View {
         dismissOneHandPanel()
+        dismissHistory()
         builtTheme = selTheme
         builtDynamic = dynamicColor
         builtPanel = panelOn
+        builtClipVisible = clipViewAllowed()
 
         // Тема из манифеста у IME не применяется, поэтому оборачиваем контекст сами:
         // так работают и Material-атрибуты, и динамические цвета Material You.
@@ -1259,6 +1297,271 @@ class MoggedKeyboardService : InputMethodService() {
         oneHandPopup = null
     }
 
+    // ── история буфера ───────────────────────────────────────
+    /**
+     * Кнопка истории прячется там, где текст считаем чужим: инкогнито,
+     * пароли, PIN, числа, телефоны, почта и поля без подсказок —
+     * то же правило, что у умной пунктуации ([Punctuation.protectedField]).
+     */
+    private fun clipViewAllowed(): Boolean =
+        !Punctuation.protectedField(editorInputType, isIncognitoNow())
+
+    private fun clipboard(): ClipboardManager? =
+        getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+
+    /**
+     * Слушатель буфера работает, пока клавиатура показана и поле не защищено.
+     * Так копии, сделанные без клавиатуры, не теряются: при открытии панели
+     * буфер читается ещё раз ([captureClip]).
+     */
+    private fun syncClipWatch() {
+        val wanted = inputActive && clipEnabled && clipViewAllowed()
+        if (!wanted) {
+            stopClipWatch()
+            return
+        }
+        ensureClipsLoaded()
+        if (clipWatching) return
+        val manager = clipboard() ?: return
+        try {
+            manager.addPrimaryClipChangedListener(clipWatcher)
+            clipWatching = true
+        } catch (t: Throwable) {
+            // Буфер недоступен: история просто не пополняется.
+        }
+    }
+
+    private fun stopClipWatch() {
+        if (!clipWatching) return
+        try {
+            clipboard()?.removePrimaryClipChangedListener(clipWatcher)
+        } catch (t: Throwable) {
+            // слушатель уже снят
+        }
+        clipWatching = false
+    }
+
+    private fun ensureClipsLoaded() {
+        if (clipsLoaded) return
+        clips = ClipStore.load(this)
+        clipsLoaded = true
+        if (ClipboardHistory.prune(clips, System.currentTimeMillis(), clipRetention)) {
+            ClipStore.save(this, clips)
+        }
+    }
+
+    /**
+     * Читает буфер и кладёт текст в историю. Картинки, файлы и чувствительные
+     * клипы (Android 13+) пропускаются; в поля паролей и в инкогнито не пишем.
+     * [stamp] = false — чтение при открытии панели: уже известную запись
+     * не поднимаем и время ей не меняем, иначе список прыгал бы при каждом
+     * открытии.
+     */
+    private fun captureClip(stamp: Boolean = true) {
+        if (!clipEnabled || !clipViewAllowed()) return
+        val manager = clipboard() ?: return
+        val clip = try {
+            manager.primaryClip
+        } catch (t: Throwable) {
+            null
+        } ?: return
+        if (clip.itemCount == 0 || clipIsSensitive(clip)) return
+        val text = clip.getItemAt(0)?.text?.toString() ?: return
+
+        ensureClipsLoaded()
+        val now = System.currentTimeMillis()
+        val added = if (!stamp && clips.any { it.text == text }) {
+            false
+        } else {
+            ClipboardHistory.add(clips, text, now)
+        }
+        val pruned = ClipboardHistory.prune(clips, now, clipRetention)
+        if (added || pruned) ClipStore.save(this, clips)
+    }
+
+    /** Клип помечен приложением как секретный: не записываем и не показываем. */
+    private fun clipIsSensitive(clip: ClipData): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return false
+        val extras = clip.description?.extras ?: return false
+        return extras.getBoolean(ClipDescription.EXTRA_IS_SENSITIVE, false)
+    }
+
+    private fun dismissHistory() {
+        try {
+            clipPopup?.dismiss()
+        } catch (t: Throwable) {
+            // окно уже закрыто
+        }
+        clipPopup = null
+        clipPopupAnchor = null
+    }
+
+    private fun refreshHistory() {
+        val anchor = clipPopupAnchor ?: return
+        showHistoryPopup(anchor)
+    }
+
+    /**
+     * Список истории над кнопкой панели: тап вставляет текст, долгое нажатие
+     * закрепляет, свайп в сторону удаляет. Поиск живёт в настройках: IME
+     * не может надёжно печатать в собственное всплывающее окно.
+     */
+    private fun showHistoryPopup(anchor: View) {
+        dismissHistory()
+        clipPopupAnchor = anchor
+
+        // Копии, сделанные, пока слушатель не работал, читаем при открытии.
+        if (clipEnabled) captureClip(stamp = false)
+
+        val box = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(20).toFloat()
+                setColor(cSurfaceContainerHigh)
+            }
+        }
+
+        if (!clipEnabled) {
+            box.addView(historyHint(getString(R.string.clip_history_off)))
+        } else {
+            ensureClipsLoaded()
+            if (ClipboardHistory.prune(clips, System.currentTimeMillis(), clipRetention)) {
+                ClipStore.save(this, clips)
+            }
+            if (clips.isEmpty()) {
+                box.addView(historyHint(getString(R.string.clip_history_empty)))
+            } else {
+                val list = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+                clips.forEachIndexed { index, entry ->
+                    list.addView(historyRow(index, entry))
+                }
+                box.addView(
+                    ScrollView(ctx).apply {
+                        isVerticalScrollBarEnabled = false
+                        addView(list)
+                    }
+                )
+            }
+        }
+
+        val maxWidth = (contentWidth() - dp(8)).coerceIn(dp(200), dp(420))
+        // Выше кнопки должно хватить места: на низком экране список короче.
+        val location = IntArray(2)
+        anchor.getLocationOnScreen(location)
+        val maxHeight = minOf(dp(320), (location[1] - dp(8)).coerceAtLeast(dp(120)))
+        box.measure(
+            View.MeasureSpec.makeMeasureSpec(maxWidth, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(maxHeight, View.MeasureSpec.AT_MOST)
+        )
+        val height = box.measuredHeight
+
+        val popup = PopupWindow(box, maxWidth, height, false).apply {
+            isOutsideTouchable = true
+            isFocusable = false
+            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            elevation = dp(8).toFloat()
+        }
+
+        try {
+            popup.showAsDropDown(
+                anchor,
+                (anchor.width - maxWidth) / 2,
+                -(anchor.height + height + dp(6))
+            )
+        } catch (t: Throwable) {
+            clipPopupAnchor = null
+            return
+        }
+        clipPopup = popup
+    }
+
+    private fun historyHint(text: String): TextView = TextView(ctx).apply {
+        this.text = text
+        textSize = specialSize
+        setTextColor(Palette.readable(cOnKeyVariant, cSurfaceContainerHigh, contrastTarget))
+        includeFontPadding = false
+        setPadding(dp(10), dp(8), dp(10), dp(8))
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun historyRow(index: Int, entry: ClipEntry): View {
+        val row = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(10), dp(7), dp(10), dp(7))
+            isClickable = true
+            isLongClickable = true
+        }
+
+        row.addView(TextView(ctx).apply {
+            text = entry.text.replace('\n', ' ')
+            textSize = specialSize
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+            setTextColor(Palette.readable(cOnKey, cSurfaceContainerHigh, contrastTarget))
+            includeFontPadding = false
+        })
+
+        row.addView(TextView(ctx).apply {
+            val time = ClipTime.label(ctx, entry.time)
+            text = if (entry.pinned) {
+                getString(R.string.clip_meta_pinned, time)
+            } else {
+                time
+            }
+            textSize = hintSize()
+            setTextColor(
+                Palette.readable(cOnKeyVariant, cSurfaceContainerHigh, contrastTarget)
+            )
+            includeFontPadding = false
+        })
+
+        row.setOnClickListener {
+            val ic = currentInputConnection ?: return@setOnClickListener
+            ic.commitText(entry.text, 1)
+            dismissHistory()
+        }
+        row.setOnLongClickListener {
+            if (ClipboardHistory.togglePin(clips, index)) {
+                ClipStore.save(this, clips)
+                handler.post { refreshHistory() }
+            } else {
+                Toast.makeText(this, R.string.clip_pin_limit, Toast.LENGTH_SHORT).show()
+            }
+            true
+        }
+
+        // Свайп в сторону — удаление. Вертикальная прокрутка списка остаётся.
+        var downX = 0f
+        var downY = 0f
+        row.setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    downX = event.rawX
+                    downY = event.rawY
+                    false
+                }
+                MotionEvent.ACTION_UP -> {
+                    val dx = event.rawX - downX
+                    val dy = event.rawY - downY
+                    if (abs(dx) > dp(48).toFloat() && abs(dx) > abs(dy)) {
+                        ClipboardHistory.remove(clips, index)
+                        ClipStore.save(this, clips)
+                        view.animate().alpha(0f).setDuration(90L)
+                            .withEndAction { refreshHistory() }
+                            .start()
+                        true
+                    } else {
+                        false
+                    }
+                }
+                else -> false
+            }
+        }
+        return row
+    }
+
     // ── панель инструментов ──────────────────────────────────
     private fun isIncognitoNow(): Boolean = incognitoOn || isSensitive
 
@@ -1286,6 +1589,7 @@ class MoggedKeyboardService : InputMethodService() {
             }
             panelActions
                 .filter { it != Panel.UNDO && it != Panel.REDO || !undoUnsupported }
+                .filter { it != Panel.HISTORY || builtClipVisible }
                 .forEach { action -> row.addView(panelButton(action)) }
             scroll.addView(row)
             bar.addView(scroll)
@@ -1314,7 +1618,7 @@ class MoggedKeyboardService : InputMethodService() {
         val view = panelIconButton(
             Panel.iconRes(action),
             getString(Panel.titleRes(action))
-        ) { runPanelAction(action) }
+        ) { runPanelAction(action, it) }
         view.layoutParams = LinearLayout.LayoutParams(dp(44), dp(32)).apply {
             marginStart = dp(4)
         }
@@ -1342,8 +1646,12 @@ class MoggedKeyboardService : InputMethodService() {
             setOnClickListener { onClick() }
         }
 
-    private fun runPanelAction(action: String) {
+    private fun runPanelAction(action: String, anchor: View) {
         tap()
+        if (action == Panel.HISTORY) {
+            showHistoryPopup(anchor)
+            return
+        }
         val ic = currentInputConnection ?: return
         when (action) {
             Panel.ALL -> ic.performContextMenuAction(android.R.id.selectAll)
@@ -1852,10 +2160,11 @@ class MoggedKeyboardService : InputMethodService() {
 
     // ── тактильный отклик ────────────────────────────────────
     private fun tap(strongKey: Boolean = false) {
-        // Нажатие на любую клавишу закрывает меню альтернатив
-        // и мини-панель одной руки.
+        // Нажатие на любую клавишу закрывает меню альтернатив,
+        // мини-панель одной руки и историю буфера.
         dismissAlternatives()
         dismissOneHandPanel()
+        dismissHistory()
         vibrate(strongKey)
         if (soundOn) clickSound?.play(soundVolume.toFloat() / 100f)
     }
@@ -1934,7 +2243,9 @@ class MoggedKeyboardService : InputMethodService() {
                 variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD)
 
         isSensitive = password || cls == InputType.TYPE_CLASS_NUMBER ||
-            cls == InputType.TYPE_CLASS_PHONE
+            cls == InputType.TYPE_CLASS_PHONE ||
+            (info != null &&
+                (info.imeOptions and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) != 0)
 
         extraLeft = ","
         extraRight = "."
@@ -1986,9 +2297,12 @@ class MoggedKeyboardService : InputMethodService() {
         pendingSwap = null
         dismissAlternatives()
         dismissOneHandPanel()
+        dismissHistory()
         hidePreview()
         loadPrefs()
         readEditorInfo(info)
+        inputActive = true
+        syncClipWatch()
 
         val keep = restarting || keepStateOnce
         keepStateOnce = false
@@ -2002,7 +2316,8 @@ class MoggedKeyboardService : InputMethodService() {
 
         // Настройки или тема поменялись, пока клавиатура была скрыта.
         if (root != null &&
-            (builtTheme != selTheme || builtDynamic != dynamicColor || builtPanel != panelOn)
+            (builtTheme != selTheme || builtDynamic != dynamicColor || builtPanel != panelOn ||
+                builtClipVisible != clipViewAllowed())
         ) {
             setInputView(buildInputView())
             return
@@ -2024,7 +2339,10 @@ class MoggedKeyboardService : InputMethodService() {
         stopRepeat()
         dismissAlternatives()
         dismissOneHandPanel()
+        dismissHistory()
         hidePreview()
+        inputActive = false
+        stopClipWatch()
         super.onFinishInputView(finishingInput)
     }
 
@@ -2032,7 +2350,10 @@ class MoggedKeyboardService : InputMethodService() {
         stopRepeat()
         dismissAlternatives()
         dismissOneHandPanel()
+        dismissHistory()
         hidePreview()
+        inputActive = false
+        stopClipWatch()
         super.onWindowHidden()
     }
 
@@ -2061,14 +2382,8 @@ class MoggedKeyboardService : InputMethodService() {
      * Ширина блока клавиш: процент от ширины окна минус поля у краёв.
      * 100% — это окно без полей, верхнего предела нет.
      */
-    private fun contentWidth(): Int {
-        val available = windowWidthDp()
-        val block = Widths.blockDp(available, widthPercent).coerceAtMost(available)
-        // Отступ у краёв входит в выбранную ширину: 100% — это окно минус
-        // поля, а не клавиши вплотную к полосе системного жеста.
-        return (dp(block.roundToInt()) - 2 * sidePadding())
-            .coerceAtLeast(dp(Widths.MIN_DP.toInt()))
-    }
+    private fun contentWidth(): Int =
+        dp(Widths.contentWidthDp(windowWidthDp(), widthPercent, prefs.edgeInset).roundToInt())
 
     /** Подбираем кегль под реальную ширину клавиши и высоту ряда. */
     private fun computeSizes(rows: Int) {
