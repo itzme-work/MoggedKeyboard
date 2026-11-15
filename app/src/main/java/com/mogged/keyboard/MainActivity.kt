@@ -129,6 +129,12 @@ class MainActivity : AppCompatActivity() {
     private var pendingUpdate: UpdateManager.Update? = null
     private var busy = false
 
+    /** Что показать после окончания работы с картинкой (сообщение, переключатель). */
+    private var imageDone: ((Boolean) -> Unit)? = null
+
+    /** Подсказка про одну руку на всю ширину показана — не повторяем. */
+    private var widthHintShown = false
+
     /** Экспорт: системный диалог «создать документ». */
     private val exportLauncher = registerForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
@@ -207,6 +213,19 @@ class MainActivity : AppCompatActivity() {
         refreshStatus()
         refreshOnboarding()
         if (prefs.checkUpdates) checkUpdate(quiet = true)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // Обработка картинки живёт отдельно от экрана: после поворота
+        // подписываемся заново и показываем, что она ещё идёт.
+        Images.addListener(imageWorkDone)
+        showImageBusy(Images.isBusy())
+    }
+
+    override fun onStop() {
+        Images.removeListener(imageWorkDone)
+        super.onStop()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -363,8 +382,9 @@ class MainActivity : AppCompatActivity() {
         bindSwitch(R.id.swOneHandPanel, prefs.oneHandPanel) { prefs.oneHandPanel = it }
 
         setupSlider(
-            R.id.sldHeight, R.id.heightValue, 220f, 340f, 10f,
-            prefs.height, R.string.height_value_short
+            R.id.sldHeight, R.id.heightValue, 220f,
+            Widths.maxHeightDp(screenWidthDp()).toFloat(), 10f,
+            heightForSlider(), R.string.height_value_short
         ) {
             prefs.height = it
             miniPreview.refresh()
@@ -385,6 +405,13 @@ class MainActivity : AppCompatActivity() {
             prefs.width, R.string.width_value_short
         ) {
             prefs.width = it
+            // Одна рука на всю ширину не работает: подсказываем один раз.
+            if (it < 100) {
+                widthHintShown = false
+            } else if (prefs.oneHand != "off" && !widthHintShown) {
+                widthHintShown = true
+                toast(R.string.one_hand_width_hint)
+            }
             miniPreview.refresh()
         }
 
@@ -547,6 +574,10 @@ class MainActivity : AppCompatActivity() {
                 R.id.oneHandLeft -> "left"
                 R.id.oneHandRight -> "right"
                 else -> "off"
+            }
+            // На всю ширину одна рука бессмысленна: подсказываем уменьшить.
+            if (prefs.oneHand != "off" && Widths.percent(prefs.width) >= 100) {
+                toast(R.string.one_hand_width_hint)
             }
             miniPreview.refresh()
         }
@@ -870,6 +901,25 @@ class MainActivity : AppCompatActivity() {
 
     /** Размер в dp целыми пикселями. */
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).roundToInt()
+
+    /** Ширина окна в dp: в разделённом экране и на складных — своя. */
+    private fun screenWidthDp(): Int {
+        val width = resources.configuration.screenWidthDp
+        if (width > 0) return width
+        return (resources.displayMetrics.widthPixels / resources.displayMetrics.density).toInt()
+    }
+
+    /**
+     * Высота для ползунка: на планшете по умолчанию выше, а сохранённое
+     * значение не выходит за новые границы.
+     */
+    private fun heightForSlider(): Int {
+        val width = screenWidthDp()
+        if (!prefs.store.contains("height")) {
+            prefs.height = Widths.defaultHeightDp(width)
+        }
+        return prefs.height.coerceIn(Widths.MIN_HEIGHT_DP, Widths.maxHeightDp(width))
+    }
 
     /** Пример отклика при смене характера вибрации. */
     @Suppress("DEPRECATION")
@@ -1203,58 +1253,69 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Своя картинка: уменьшение, поворот и размытие — в фоновом потоке,
-     * иначе на слабом телефоне интерфейс замирает на секунду-другую.
-     * Пока идёт работа, видна полоска ожидания, кнопки недоступны.
+     * Своя картинка: уменьшение, поворот и размытие идут в одном фоновом
+     * потоке ([Images]), иначе на слабом телефоне интерфейс замирает,
+     * а две операции могут писать в один файл. Пока идёт работа, видна
+     * полоска ожидания, кнопки недоступны.
      */
     private fun runImageWork(work: () -> Boolean, done: (Boolean) -> Unit) {
-        val progress = findViewById<ProgressBar>(R.id.imageProgress)
-        val pick = findViewById<Button>(R.id.btnPickImage)
-        val remove = findViewById<Button>(R.id.btnRemoveImage)
-        val blur = findViewById<MaterialSwitch>(R.id.swBlur)
-        progress.visibility = View.VISIBLE
-        pick.isEnabled = false
-        remove.isEnabled = false
-        blur.isEnabled = false
-        Thread {
-            val ok = try {
-                work()
-            } catch (t: Throwable) {
-                false
-            }
-            runOnUiThread {
-                progress.visibility = View.GONE
-                pick.isEnabled = true
-                blur.isEnabled = true
-                refreshImageButtons()
-                done(ok)
-            }
-        }.start()
+        imageDone = done
+        showImageBusy(true)
+        Images.submit(work)
+    }
+
+    /** Полоска ожидания и доступность кнопок картинки. */
+    private fun showImageBusy(busy: Boolean) {
+        findViewById<ProgressBar>(R.id.imageProgress).visibility =
+            if (busy) View.VISIBLE else View.GONE
+        findViewById<Button>(R.id.btnPickImage).isEnabled = !busy
+        findViewById<MaterialSwitch>(R.id.swBlur).isEnabled = !busy
+        refreshImageButtons()
+        if (busy) findViewById<Button>(R.id.btnRemoveImage).isEnabled = false
+    }
+
+    /**
+     * Окончание обработки. Экран к этому моменту мог быть повёрнут —
+     * поэтому всё состояние уже сохранено в работе, а тут только показ.
+     */
+    private val imageWorkDone: (Boolean) -> Unit = { ok ->
+        showImageBusy(false)
+        miniPreview.reloadImage()
+        val done = imageDone
+        imageDone = null
+        done?.invoke(ok)
     }
 
     private fun pickImage(uri: Uri) {
         val blur = prefs.backgroundBlur
-        runImageWork({ Images.save(this, uri, blur) }) { ok ->
+        runImageWork({
+            val ok = Images.save(this, uri, blur)
+            // Сохраняем сразу: даже если экран повернули, картинка останется.
             if (ok) {
                 prefs.backgroundImage = true
                 prefs.background = "image"
+            }
+            ok
+        }) { ok ->
+            if (ok) {
                 // Градиент и картинка взаимоисключающие.
                 findViewById<MaterialSwitch>(R.id.swGradient).isChecked = false
                 toast(R.string.bg_image_saved)
             } else {
                 toast(R.string.bg_image_failed)
             }
-            miniPreview.reloadImage()
         }
     }
 
     private fun removeImage() {
-        Images.delete(this)
-        prefs.backgroundImage = false
-        if (prefs.background == "image") prefs.background = "solid"
-        refreshImageButtons()
-        miniPreview.reloadImage()
-        toast(R.string.bg_image_removed)
+        runImageWork({
+            Images.delete(this)
+            prefs.backgroundImage = false
+            if (prefs.background == "image") prefs.background = "solid"
+            true
+        }) {
+            toast(R.string.bg_image_removed)
+        }
     }
 
     private fun refreshImageButtons() {
