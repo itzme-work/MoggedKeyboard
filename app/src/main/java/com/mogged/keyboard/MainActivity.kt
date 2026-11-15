@@ -445,8 +445,11 @@ class MainActivity : AppCompatActivity() {
         bindSwitch(R.id.swBlur, prefs.backgroundBlur) {
             prefs.backgroundBlur = it
             if (Images.exists(this)) {
-                Images.applyBlur(this, it)
-                miniPreview.reloadImage()
+                // Размытие тяжёлое: считаем в фоне, иначе переключатель подвисает.
+                runImageWork({ Images.applyBlur(this, it) }) { ok ->
+                    if (!ok) toast(R.string.bg_image_failed)
+                    miniPreview.reloadImage()
+                }
             }
         }
         refreshImageButtons()
@@ -1199,19 +1202,50 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Своя картинка: уменьшение, поворот и размытие — в фоновом потоке,
+     * иначе на слабом телефоне интерфейс замирает на секунду-другую.
+     * Пока идёт работа, видна полоска ожидания, кнопки недоступны.
+     */
+    private fun runImageWork(work: () -> Boolean, done: (Boolean) -> Unit) {
+        val progress = findViewById<ProgressBar>(R.id.imageProgress)
+        val pick = findViewById<Button>(R.id.btnPickImage)
+        val remove = findViewById<Button>(R.id.btnRemoveImage)
+        val blur = findViewById<MaterialSwitch>(R.id.swBlur)
+        progress.visibility = View.VISIBLE
+        pick.isEnabled = false
+        remove.isEnabled = false
+        blur.isEnabled = false
+        Thread {
+            val ok = try {
+                work()
+            } catch (t: Throwable) {
+                false
+            }
+            runOnUiThread {
+                progress.visibility = View.GONE
+                pick.isEnabled = true
+                blur.isEnabled = true
+                refreshImageButtons()
+                done(ok)
+            }
+        }.start()
+    }
+
     private fun pickImage(uri: Uri) {
         val blur = prefs.backgroundBlur
-        if (Images.save(this, uri, blur)) {
-            prefs.backgroundImage = true
-            prefs.background = "image"
-            // Градиент и картинка взаимоисключающие.
-            findViewById<MaterialSwitch>(R.id.swGradient).isChecked = false
-            toast(R.string.bg_image_saved)
-        } else {
-            toast(R.string.bg_image_failed)
+        runImageWork({ Images.save(this, uri, blur) }) { ok ->
+            if (ok) {
+                prefs.backgroundImage = true
+                prefs.background = "image"
+                // Градиент и картинка взаимоисключающие.
+                findViewById<MaterialSwitch>(R.id.swGradient).isChecked = false
+                toast(R.string.bg_image_saved)
+            } else {
+                toast(R.string.bg_image_failed)
+            }
+            miniPreview.reloadImage()
         }
-        refreshImageButtons()
-        miniPreview.reloadImage()
     }
 
     private fun removeImage() {
