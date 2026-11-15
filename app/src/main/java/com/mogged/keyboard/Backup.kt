@@ -50,7 +50,10 @@ data class Settings(
     val backgroundImage: Boolean = false,
     val backgroundDim: Int = 40,
     val backgroundBlur: Boolean = false,
-    val edgeInset: Int = 4
+    val edgeInset: Int = 4,
+    /** История буфера в копию не входит: только флаг и срок. */
+    val clipHistory: Boolean = false,
+    val clipRetention: String = ClipboardHistory.RETENTION_DAY
 )
 
 /**
@@ -94,7 +97,9 @@ object Backup {
         customHapticDuration = 24,
         oneHandPanel = true,
         dynamicColor = true,
-        edgeInset = 4
+        edgeInset = 4,
+        clipHistory = false,
+        clipRetention = ClipboardHistory.RETENTION_DAY
     )
 
     private val THEMES = setOf("system", "light", "dark", "amoled")
@@ -153,7 +158,9 @@ object Backup {
         backgroundImage = prefs.backgroundImage,
         backgroundDim = prefs.backgroundDim,
         backgroundBlur = prefs.backgroundBlur,
-        edgeInset = prefs.edgeInset
+        edgeInset = prefs.edgeInset,
+        clipHistory = prefs.clipHistory,
+        clipRetention = prefs.clipRetention
     )
 
     fun applyTo(prefs: Prefs, settings: Settings) {
@@ -203,6 +210,8 @@ object Backup {
         prefs.backgroundDim = settings.backgroundDim
         prefs.backgroundBlur = settings.backgroundBlur
         prefs.edgeInset = settings.edgeInset
+        prefs.clipHistory = settings.clipHistory
+        prefs.clipRetention = settings.clipRetention
     }
 
     fun toJson(settings: Settings): String = JSONObject().apply {
@@ -266,6 +275,8 @@ object Backup {
         put("backgroundDim", snap(clamp(settings.backgroundDim, 0, 80), 0, 5))
         put("backgroundBlur", settings.backgroundBlur)
         put("edgeInset", snap(clamp(settings.edgeInset, 0, 12), 0, 2))
+        put("clipHistory", settings.clipHistory)
+        put("clipRetention", ClipboardHistory.retention(settings.clipRetention))
     }.toString(2)
 
     /** null — это не наша копия или файл повреждён. */
@@ -355,6 +366,12 @@ object Backup {
                 clamp(json.optInt("edgeInset", DEFAULT.edgeInset), 0, 12),
                 0,
                 2
+            ),
+            clipHistory = json.optBoolean("clipHistory", DEFAULT.clipHistory),
+            clipRetention = pick(
+                json.optString("clipRetention"),
+                ClipboardHistory.RETENTIONS,
+                DEFAULT.clipRetention
             )
         )
     }
