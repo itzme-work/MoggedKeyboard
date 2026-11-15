@@ -97,6 +97,15 @@ class Prefs(context: Context) {
         get() = store.getInt("width", 100).coerceIn(50, 100)
         set(value) = store.edit().putInt("width", value.coerceIn(50, 100)).apply()
 
+    /**
+     * Отступ у краёв в dp, 0..12. Крайние клавиши не должны попадать
+     * в полосу системного жеста «назад»: на телефоне с жестами край
+     * экрана — это «назад», и клавиши у самого края нажимаются плохо.
+     */
+    var edgeInset: Int
+        get() = store.getInt("edge_inset", 4).coerceIn(0, 12)
+        set(value) = store.edit().putInt("edge_inset", value.coerceIn(0, 12)).apply()
+
     /** Режим одной руки: off, left или right. */
     var oneHand: String
         get() = store.getString("one_hand", "off") ?: "off"
