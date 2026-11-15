@@ -27,11 +27,13 @@
     <string name="theme_auto_short">Авто</string>
     <string name="theme_amoled_short">AMOLED</string>
     <string name="width_label">Ширина</string>
+    <string name="edge_label">Отступ у краёв</string>
     <string name="height_label">Высота</string>
     <string name="radius_label">Радиус клавиш</string>
     <string name="vibration_label">Сила вибрации</string>
     <string name="volume_label">Громкость</string>
     <string name="width_value_short">%1$d%%</string>
+    <string name="edge_value_short">%1$d dp</string>
     <string name="height_value_short">%1$d dp</string>
     <string name="radius_value_short">%1$d dp</string>
     <string name="vibration_value_short">%1$d%%</string>
@@ -77,6 +79,7 @@
     <string name="onehand_left">Слева</string>
     <string name="onehand_right">Справа</string>
     <string name="onehand_hint">Блок клавиш прижимается к выбранному краю. Насколько он узкий — задаёт ползунок ширины.</string>
+    <string name="edge_hint">Крайние клавиши не попадают в полосу системного жеста «назад». 0 — клавиши у самого края.</string>
     <string name="pref_number_row">Числовой ряд над буквами</string>
     <string name="pref_hints">Подсказки символов на клавишах</string>
     <string name="pref_preview">Предпросмотр клавиши</string>
