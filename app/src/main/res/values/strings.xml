@@ -203,6 +203,37 @@
     <string name="panel_one_hand_title">Одна рука: слева, справа или выкл</string>
     <string name="panel_incognito_title">Режим инкогнито</string>
     <string name="panel_settings_title">Открыть настройки</string>
+    <string name="panel_history_title">История буфера</string>
+
+    <!-- История буфера -->
+    <string name="clip_title">Буфер обмена</string>
+    <string name="clip_hint">По умолчанию выключено. Сохраняются только тексты до 5000 символов. Пароли, PIN, числа, телефоны, почта, инкогнито и клипы, помеченные секретными, в историю не попадают. Файл лежит в приватной папке приложения и зашифрован ключом из Keystore; в резервную копию входят только флаг и срок.</string>
+    <string name="pref_clip_history">Запоминать скопированный текст</string>
+    <string name="clip_retention_title">Срок хранения</string>
+    <string name="clip_retention_hour">1 час</string>
+    <string name="clip_retention_day">1 день</string>
+    <string name="clip_retention_never">Никогда</string>
+    <string name="clip_open">Открыть историю</string>
+    <string name="clip_open_empty">История пуста</string>
+    <string name="clip_clear">Очистить всё</string>
+    <string name="clip_clear_title">Очистить историю?</string>
+    <string name="clip_clear_text">Все записи будут удалены вместе с ключом шифрования. Это нельзя отменить.</string>
+    <string name="clip_clear_done">История очищена</string>
+    <string name="clip_history_off">История выключена. Включите её в настройках, раздел «Ввод».</string>
+    <string name="clip_history_empty">Здесь появятся скопированные тексты.</string>
+    <string name="clip_pin_limit">Закрепить можно до 10 записей</string>
+    <string name="clip_meta_pinned">%1$s · закреплено</string>
+    <string name="clip_pin">Закрепить</string>
+    <string name="clip_unpin">Открепить</string>
+    <string name="clip_delete">Удалить</string>
+    <string name="clip_copied">Скопировано</string>
+    <string name="clip_close">Закрыть</string>
+    <string name="clip_search_hint">Поиск по истории</string>
+    <string name="clip_search_empty">Ничего не найдено</string>
+    <string name="clip_time_now">только что</string>
+    <string name="clip_time_min">%1$d мин назад</string>
+    <string name="clip_time_hour">%1$d ч назад</string>
+    <string name="clip_time_day">%1$d сут. назад</string>
 
     <!-- Шаблоны -->
     <string name="templates_title">Шаблоны</string>
