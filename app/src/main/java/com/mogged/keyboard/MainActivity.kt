@@ -1240,7 +1240,7 @@ class MainActivity : AppCompatActivity() {
 
         val search = EditText(this).apply {
             hint = getString(R.string.clip_search_hint)
-            singleLine = true
+            setSingleLine()
             inputType = InputType.TYPE_CLASS_TEXT
             setPadding(0, dp(8), 0, dp(8))
         }
