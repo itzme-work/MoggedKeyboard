@@ -83,6 +83,28 @@ class BackupTest {
     }
 
     @Test
+    fun tabletHeightSurvivesBackup() {
+        // Раньше высота обрезалась на 340 и планшетная терялась при переносе.
+        val json = """
+            {
+              "app": "mogged-keyboard",
+              "schema": 1,
+              "height": 420
+            }
+        """.trimIndent()
+        assertEquals(420, Backup.parse(json)!!.height)
+
+        val tooTall = """
+            {
+              "app": "mogged-keyboard",
+              "schema": 1,
+              "height": 900
+            }
+        """.trimIndent()
+        assertEquals(Widths.TABLET_MAX_HEIGHT_DP, Backup.parse(tooTall)!!.height)
+    }
+
+    @Test
     fun unknownKeysAndWrongOptionsFallBackToDefaults() {
         val json = """
             {
