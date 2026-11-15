@@ -2041,7 +2041,7 @@ class MoggedKeyboardService : InputMethodService() {
     private fun dp(value: Int): Int =
         (value * resources.displayMetrics.density).roundToInt()
 
-    /** Ширина окна клавиатуры в dp: своя в разделённом экране и плавающем окне. */
+    /** Ширина окна клавиатуры в dp. */
     private fun windowWidthDp(): Float {
         val config = resources.configuration.screenWidthDp
         if (config > 0) return config.toFloat()
@@ -2058,13 +2058,16 @@ class MoggedKeyboardService : InputMethodService() {
     }
 
     /**
-     * Ширина клавиатуры: процент от ширины окна. 100% — вся ширина,
-     * без боковых отступов; верхнего предела нет.
+     * Ширина блока клавиш: процент от ширины окна минус поля у краёв.
+     * 100% — это окно без полей, верхнего предела нет.
      */
     private fun contentWidth(): Int {
         val available = windowWidthDp()
         val block = Widths.blockDp(available, widthPercent).coerceAtMost(available)
-        return dp(block.roundToInt())
+        // Отступ у краёв входит в выбранную ширину: 100% — это окно минус
+        // поля, а не клавиши вплотную к полосе системного жеста.
+        return (dp(block.roundToInt()) - 2 * sidePadding())
+            .coerceAtLeast(dp(Widths.MIN_DP.toInt()))
     }
 
     /** Подбираем кегль под реальную ширину клавиши и высоту ряда. */
@@ -2093,8 +2096,12 @@ class MoggedKeyboardService : InputMethodService() {
         return dp(stored.coerceAtMost(maxDp))
     }
 
-    /** Боковой отступ: при 100% ширины его нет — клавиатура во всю ширину окна. */
-    private fun sidePadding(): Int = if (widthPercent >= 100) 0 else dp(4)
+    /**
+     * Боковой отступ: крайние клавиши не должны попадать в полосу
+     * системного жеста «назад», поэтому у края всегда есть поля.
+     * Размер задаёт настройка «Отступ у краёв», 0..12 dp.
+     */
+    private fun sidePadding(): Int = dp(prefs.edgeInset)
 
     /** Полоска панели инструментов добавляется к высоте клавиатуры. */
     private fun panelHeight(): Int = if (panelOn) dp(38) else 0
