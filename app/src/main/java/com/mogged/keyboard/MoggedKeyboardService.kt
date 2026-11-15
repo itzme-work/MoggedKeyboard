@@ -124,15 +124,17 @@ class MoggedKeyboardService : InputMethodService() {
     private var templates: List<Template> = emptyList()
     private var pendingSwap: Swap? = null
     private var undoUnsupported = false
+
+    /** Сколько раз подряд отмена/повтор ничего не изменили. */
+    private var undoMisses = 0
     private var bgDim = 40
     private var backgroundBitmap: Bitmap? = null
 
     /** Цвет под полупрозрачными клавишами: поверхность или средний тон фото. */
     private var bgBase = 0
 
-    /** Для какой картинки и затемнения посчитан [bgBase]. */
-    private var bgBaseFor: Bitmap? = null
-    private var bgBaseDim = -1
+    /** Средний тон фото — отдельно от [bgBase], иначе перерисовки его собьют. */
+    private val photoTone = PhotoTone { image, dim -> Images.averageColor(image as Bitmap, dim) }
 
     /** Тема, с которой построен текущий input view. */
     private var builtTheme: String? = null
@@ -520,14 +522,7 @@ class MoggedKeyboardService : InputMethodService() {
     }
 
     /** Средний цвет фото с затемнением — считается один раз на картинку. */
-    private fun baseColor(bitmap: Bitmap): Int {
-        if (bitmap !== bgBaseFor || bgDim != bgBaseDim) {
-            bgBaseFor = bitmap
-            bgBaseDim = bgDim
-            bgBase = Images.averageColor(bitmap, bgDim)
-        }
-        return bgBase
-    }
+    private fun baseColor(bitmap: Bitmap): Int = photoTone.of(bitmap, bgDim)
 
     private fun render() {
         val box = rowsBox ?: return
@@ -1388,8 +1383,17 @@ class MoggedKeyboardService : InputMethodService() {
 
         handler.postDelayed({
             val after = currentInputConnection?.let { snippet(it) }
-            // null — поле не отдаёт текст: кнопка молчала бы, убираем её.
-            if (after == null || after == before) hideUndo()
+            if (after == null) {
+                // Поле не отдаёт текст: кнопка молчала бы, убираем её.
+                hideUndo()
+            } else if (after == before) {
+                // Откатывать нечего: одно пустое нажатие ещё не приговор,
+                // кнопки уходят только после второго подряд.
+                undoMisses++
+                if (undoMisses >= 2) hideUndo()
+            } else {
+                undoMisses = 0
+            }
         }, 80)
     }
 
@@ -1405,6 +1409,7 @@ class MoggedKeyboardService : InputMethodService() {
     }
 
     private fun hideUndo() {
+        undoMisses = 0
         if (!undoUnsupported) {
             undoUnsupported = true
             setInputView(buildInputView())
@@ -1577,8 +1582,7 @@ class MoggedKeyboardService : InputMethodService() {
      * На картинке клавиши не прозрачнее 70%: иначе подписи тонут в светлом
      * фото, а контраст считается от среднего тона снимка, а не от поверхности.
      */
-    private fun shownKeyAlpha(): Int =
-        if (backgroundStyle == "image") keyAlpha.coerceAtLeast(70) else keyAlpha
+    private fun shownKeyAlpha(): Int = KeyAlpha.shown(backgroundStyle, keyAlpha)
 
     /** Цвет клавиши с учётом выбранной прозрачности. */
     private fun shownKeyColor(color: Int): Int {
