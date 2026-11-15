@@ -202,3 +202,16 @@ object Look {
         return fitContrast(roles, target)
     }
 }
+
+/**
+ * Прозрачность клавиш: на своей картинке она не ниже 70%, иначе подписи
+ * тонут в светлом снимке. Одна формула для клавиатуры и мини-предпросмотра.
+ */
+object KeyAlpha {
+
+    /** Нижняя граница прозрачности на картинке. */
+    const val MIN_ON_PHOTO = 70
+
+    fun shown(background: String, alpha: Int): Int =
+        if (background == "image") alpha.coerceAtLeast(MIN_ON_PHOTO) else alpha
+}
