@@ -41,6 +41,33 @@ class WidthsTest {
     }
 
     @Test
+    fun contentWidthCountsEdgePadding() {
+        // Телефон 360dp: 100% без полей — вся ширина, с полями 12dp — минус 24.
+        assertEquals(360f, Widths.contentWidthDp(360f, 100, 0), 0.01f)
+        assertEquals(336f, Widths.contentWidthDp(360f, 100, 12), 0.01f)
+        // Планшет 1280dp: те же правила.
+        assertEquals(1280f, Widths.contentWidthDp(1280f, 100, 0), 0.01f)
+        assertEquals(1256f, Widths.contentWidthDp(1280f, 100, 12), 0.01f)
+    }
+
+    @Test
+    fun contentWidthKeepsMinimumAtHalfWidth() {
+        // 50% от 360 — это 180, но клавиши не уже 240dp.
+        assertEquals(Widths.MIN_DP, Widths.contentWidthDp(360f, 50, 0), 0.01f)
+        // 240 минус два поля по 12 — уже 216, минимум важнее.
+        assertEquals(Widths.MIN_DP, Widths.contentWidthDp(360f, 50, 12), 0.01f)
+        // Узкое окно тоже не опускает блок ниже минимума.
+        assertEquals(Widths.MIN_DP, Widths.contentWidthDp(200f, 100, 0), 0.01f)
+    }
+
+    @Test
+    fun contentWidthClampsEdgeInset() {
+        // Больше 12dp настройка не отдаёт, отрицательный отступ не бывает.
+        assertEquals(336f, Widths.contentWidthDp(360f, 100, 40), 0.01f)
+        assertEquals(360f, Widths.contentWidthDp(360f, 100, -5), 0.01f)
+    }
+
+    @Test
     fun tabletGetsTallerKeyboard() {
         assertFalse(Widths.isTablet(360))
         assertTrue(Widths.isTablet(600))
