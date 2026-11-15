@@ -73,6 +73,7 @@
     <string name="width_value">Ширина клавиатуры: %1$d%%</string>
     <string name="onehand_title">Одна рука</string>
     <string name="onehand_off">Выкл</string>
+    <string name="one_hand_width_hint">Ширина 100%: для одной руки уменьшите ширину клавиатуры</string>
     <string name="onehand_left">Слева</string>
     <string name="onehand_right">Справа</string>
     <string name="onehand_hint">Блок клавиш прижимается к выбранному краю. Насколько он узкий — задаёт ползунок ширины.</string>
