@@ -17,6 +17,7 @@ import androidx.exifinterface.media.ExifInterface
 import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.roundToInt
 
 /**
@@ -47,11 +48,12 @@ object Images {
     private val main = Handler(Looper.getMainLooper())
     private val listeners = CopyOnWriteArrayList<(Boolean) -> Unit>()
 
-    @Volatile
-    private var busy = false
+    // Счётчик, а не флаг: в очереди может стоять две работы, и после
+    // первой из них isBusy() ещё должно быть истинным.
+    private val pending = AtomicInteger(0)
 
-    /** Идёт ли сейчас обработка: по этому флагу экран показывает полоску. */
-    fun isBusy(): Boolean = busy
+    /** Идёт ли сейчас обработка: по этому значению экран показывает полоску. */
+    fun isBusy(): Boolean = pending.get() > 0
 
     /** Подписка на окончание работы. Обратный вызов приходит в главном потоке. */
     fun addListener(listener: (Boolean) -> Unit) {
@@ -69,14 +71,14 @@ object Images {
      * а подписчики получат результат в главном потоке.
      */
     fun submit(work: () -> Boolean) {
-        busy = true
+        pending.incrementAndGet()
         worker.execute {
             val ok = try {
                 work()
             } catch (t: Throwable) {
                 false
             }
-            busy = false
+            pending.decrementAndGet()
             main.post {
                 for (listener in listeners) listener(ok)
             }
