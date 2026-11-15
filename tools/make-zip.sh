@@ -70,3 +70,12 @@ echo "Готово: $OUT"
 echo "  файлов:  $COUNT"
 echo "  размер:  $(wc -c < "$OUT") байт"
 echo "  sha256:  $(sha256sum "$OUT" | awk '{print $1}')"
+
+# Карта проекта и планы должны быть в архиве: по ним проверяют версию
+# и правила. Архив — это ветка целиком, но лучше убедиться.
+for NEED in CLAUDE.md docs/ROADMAP.md; do
+  if ! unzip -l "$OUT" | grep -q "/$NEED\$"; then
+    echo "В архиве нет $NEED — залейте файл и повторите" >&2
+    exit 1
+  fi
+done
