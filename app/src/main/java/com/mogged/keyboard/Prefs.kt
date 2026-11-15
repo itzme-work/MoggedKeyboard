@@ -103,8 +103,10 @@ class Prefs(context: Context) {
      * экрана — это «назад», и клавиши у самого края нажимаются плохо.
      */
     var edgeInset: Int
-        get() = store.getInt("edge_inset", 4).coerceIn(0, 12)
-        set(value) = store.edit().putInt("edge_inset", value.coerceIn(0, 12)).apply()
+        get() = store.getInt("edge_inset", 4).coerceIn(0, Widths.MAX_EDGE_DP)
+        set(value) = store.edit()
+            .putInt("edge_inset", value.coerceIn(0, Widths.MAX_EDGE_DP))
+            .apply()
 
     /** Режим одной руки: off, left или right. */
     var oneHand: String
@@ -209,7 +211,28 @@ class Prefs(context: Context) {
 
     /** Кнопки панели по порядку. */
     var panelActions: List<String>
-        get() = Panel.parse(store.getString("panel_actions", Panel.DEFAULT))
+        get() {
+            val list = Panel.parse(store.getString("panel_actions", Panel.DEFAULT))
+            // 0.12.0: у старых настроек в панели ещё нет истории. Добавляем
+            // её один раз после «Вставить», чтобы кнопка появилась после
+            // обновления; дальше человек сам решает, оставлять ли её.
+            if (store.getBoolean("panel_actions_v2", false)) return list
+            val migrated = if (Panel.HISTORY !in list) {
+                val at = list.indexOf(Panel.PASTE)
+                if (at >= 0) {
+                    list.toMutableList().apply { add(at + 1, Panel.HISTORY) }
+                } else {
+                    list + Panel.HISTORY
+                }
+            } else {
+                list
+            }
+            store.edit()
+                .putString("panel_actions", Panel.format(migrated))
+                .putBoolean("panel_actions_v2", true)
+                .apply()
+            return migrated
+        }
         set(value) = store.edit().putString("panel_actions", Panel.format(value)).apply()
 
     /** Шаблоны-сокращения; в настройках лежат строкой JSON. */
@@ -238,6 +261,23 @@ class Prefs(context: Context) {
     var incognito: Boolean
         get() = store.getBoolean("incognito", false)
         set(value) = store.edit().putBoolean("incognito", value).apply()
+
+    /** История буфера: по умолчанию выключена. */
+    var clipHistory: Boolean
+        get() = store.getBoolean("clip_history", false)
+        set(value) = store.edit().putBoolean("clip_history", value).apply()
+
+    /** Срок автоочистки истории: hour, day или never. */
+    var clipRetention: String
+        get() = ClipboardHistory.retention(store.getString("clip_retention", null))
+        set(value) = store.edit()
+            .putString("clip_retention", ClipboardHistory.retention(value))
+            .apply()
+
+    /** Номер очистки истории: по нему клавиатура понимает, что кэш устарел. */
+    var clipEpoch: Int
+        get() = store.getInt("clip_epoch", 0)
+        set(value) = store.edit().putInt("clip_epoch", value).apply()
 
     /** Своя картинка фона: в резервную копию уходит только этот флаг. */
     var backgroundImage: Boolean
