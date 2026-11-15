@@ -1,6 +1,7 @@
 package com.mogged.keyboard
 
 import org.json.JSONObject
+import kotlin.math.roundToInt
 
 /** Настройки, которые попадают в резервную копию. */
 data class Settings(
@@ -48,7 +49,8 @@ data class Settings(
     val incognito: Boolean = false,
     val backgroundImage: Boolean = false,
     val backgroundDim: Int = 40,
-    val backgroundBlur: Boolean = false
+    val backgroundBlur: Boolean = false,
+    val edgeInset: Int = 4
 )
 
 /**
@@ -91,7 +93,8 @@ object Backup {
         releaseHaptic = false,
         customHapticDuration = 24,
         oneHandPanel = true,
-        dynamicColor = true
+        dynamicColor = true,
+        edgeInset = 4
     )
 
     private val THEMES = setOf("system", "light", "dark", "amoled")
@@ -149,7 +152,8 @@ object Backup {
         incognito = prefs.incognito,
         backgroundImage = prefs.backgroundImage,
         backgroundDim = prefs.backgroundDim,
-        backgroundBlur = prefs.backgroundBlur
+        backgroundBlur = prefs.backgroundBlur,
+        edgeInset = prefs.edgeInset
     )
 
     fun applyTo(prefs: Prefs, settings: Settings) {
@@ -198,16 +202,21 @@ object Backup {
         prefs.backgroundImage = settings.backgroundImage
         prefs.backgroundDim = settings.backgroundDim
         prefs.backgroundBlur = settings.backgroundBlur
+        prefs.edgeInset = settings.edgeInset
     }
 
     fun toJson(settings: Settings): String = JSONObject().apply {
         put("app", MARKER)
         put("schema", SCHEMA)
 
-        put("width", Widths.percent(settings.width))
+        put("width", snap(Widths.percent(settings.width), Widths.MIN_PERCENT, 5))
         put("oneHand", pick(settings.oneHand, HANDS, DEFAULT.oneHand))
         // Верхняя граница — планшетная: экран при импорте ещё неизвестен.
-        put("height", clamp(settings.height, Widths.MIN_HEIGHT_DP, Widths.TABLET_MAX_HEIGHT_DP))
+        put("height", snap(
+            clamp(settings.height, Widths.MIN_HEIGHT_DP, Widths.TABLET_MAX_HEIGHT_DP),
+            Widths.MIN_HEIGHT_DP,
+            10
+        ))
         put("keyRadius", clamp(settings.keyRadius, 0, 20))
         put("theme", pick(settings.theme, THEMES, DEFAULT.theme))
 
@@ -229,7 +238,7 @@ object Backup {
         put("backspaceWord", settings.backspaceWord)
         put("langKey", settings.langKey)
         put("keyOutline", settings.keyOutline)
-        put("keyFontScale", clamp(settings.keyFontScale, 80, 120))
+        put("keyFontScale", snap(clamp(settings.keyFontScale, 80, 120), 80, 5))
         put("releaseHaptic", settings.releaseHaptic)
         put("customHapticDuration", clamp(settings.customHapticDuration, 5, 60))
         put("oneHandPanel", settings.oneHandPanel)
@@ -242,7 +251,7 @@ object Backup {
         put("funcRadius", clamp(settings.funcRadius, 0, 28))
         put("elevation", clamp(settings.elevation, 0, 4))
         put("background", pick(settings.background, BACKGROUNDS, DEFAULT.background))
-        put("keyAlpha", clamp(settings.keyAlpha, 0, 100))
+        put("keyAlpha", snap(clamp(settings.keyAlpha, 0, 100), 0, 5))
         put("animations", settings.animations)
 
         put("panelOn", settings.panelOn)
@@ -254,8 +263,9 @@ object Backup {
         put("smartSpace", settings.smartSpace)
         put("incognito", settings.incognito)
         put("backgroundImage", settings.backgroundImage)
-        put("backgroundDim", clamp(settings.backgroundDim, 0, 80))
+        put("backgroundDim", snap(clamp(settings.backgroundDim, 0, 80), 0, 5))
         put("backgroundBlur", settings.backgroundBlur)
+        put("edgeInset", snap(clamp(settings.edgeInset, 0, 12), 0, 2))
     }.toString(2)
 
     /** null — это не наша копия или файл повреждён. */
@@ -270,12 +280,20 @@ object Backup {
         if (json.optInt("schema", 0) != SCHEMA) return null
 
         return Settings(
-            width = clamp(json.optInt("width", DEFAULT.width), Widths.MIN_PERCENT, 100),
+            width = snap(
+                clamp(json.optInt("width", DEFAULT.width), Widths.MIN_PERCENT, 100),
+                Widths.MIN_PERCENT,
+                5
+            ),
             oneHand = pick(json.optString("oneHand"), HANDS, DEFAULT.oneHand),
-            height = clamp(
-                json.optInt("height", DEFAULT.height),
+            height = snap(
+                clamp(
+                    json.optInt("height", DEFAULT.height),
+                    Widths.MIN_HEIGHT_DP,
+                    Widths.TABLET_MAX_HEIGHT_DP
+                ),
                 Widths.MIN_HEIGHT_DP,
-                Widths.TABLET_MAX_HEIGHT_DP
+                10
             ),
             keyRadius = clamp(json.optInt("keyRadius", DEFAULT.keyRadius), 0, 20),
             theme = pick(json.optString("theme"), THEMES, DEFAULT.theme),
@@ -296,7 +314,11 @@ object Backup {
             backspaceWord = json.optBoolean("backspaceWord", DEFAULT.backspaceWord),
             langKey = json.optBoolean("langKey", DEFAULT.langKey),
             keyOutline = json.optBoolean("keyOutline", DEFAULT.keyOutline),
-            keyFontScale = clamp(json.optInt("keyFontScale", DEFAULT.keyFontScale), 80, 120),
+            keyFontScale = snap(
+                clamp(json.optInt("keyFontScale", DEFAULT.keyFontScale), 80, 120),
+                80,
+                5
+            ),
             releaseHaptic = json.optBoolean("releaseHaptic", DEFAULT.releaseHaptic),
             customHapticDuration = clamp(
                 json.optInt("customHapticDuration", DEFAULT.customHapticDuration), 5, 60
@@ -310,7 +332,7 @@ object Backup {
             funcRadius = clamp(json.optInt("funcRadius", DEFAULT.funcRadius), 0, 28),
             elevation = clamp(json.optInt("elevation", DEFAULT.elevation), 0, 4),
             background = pick(json.optString("background"), BACKGROUNDS, DEFAULT.background),
-            keyAlpha = clamp(json.optInt("keyAlpha", DEFAULT.keyAlpha), 0, 100),
+            keyAlpha = snap(clamp(json.optInt("keyAlpha", DEFAULT.keyAlpha), 0, 100), 0, 5),
             animations = json.optBoolean("animations", DEFAULT.animations),
             panelOn = json.optBoolean("panelOn", DEFAULT.panelOn),
             panelActions = pickActions(json.optString("panelActions", DEFAULT.panelActions)),
@@ -323,8 +345,17 @@ object Backup {
             smartSpace = json.optBoolean("smartSpace", DEFAULT.smartSpace),
             incognito = json.optBoolean("incognito", DEFAULT.incognito),
             backgroundImage = json.optBoolean("backgroundImage", DEFAULT.backgroundImage),
-            backgroundDim = clamp(json.optInt("backgroundDim", DEFAULT.backgroundDim), 0, 80),
-            backgroundBlur = json.optBoolean("backgroundBlur", DEFAULT.backgroundBlur)
+            backgroundDim = snap(
+                clamp(json.optInt("backgroundDim", DEFAULT.backgroundDim), 0, 80),
+                0,
+                5
+            ),
+            backgroundBlur = json.optBoolean("backgroundBlur", DEFAULT.backgroundBlur),
+            edgeInset = snap(
+                clamp(json.optInt("edgeInset", DEFAULT.edgeInset), 0, 12),
+                0,
+                2
+            )
         )
     }
 
@@ -340,6 +371,13 @@ object Backup {
         }
 
     private fun clamp(value: Int, min: Int, max: Int): Int = value.coerceIn(min, max)
+
+    /**
+     * Значение ползунка приводим к сетке: кратно шагу от нижней границы.
+     * Иначе импортированная копия с высотой 333 роняет Slider при шаге 10.
+     */
+    private fun snap(value: Int, from: Int, step: Int): Int =
+        from + ((value - from).toFloat() / step).roundToInt() * step
 
     private fun pick(value: String, allowed: Set<String>, fallback: String): String =
         if (allowed.contains(value)) value else fallback
