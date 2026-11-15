@@ -200,9 +200,8 @@ class MiniKeyboardPreview @JvmOverloads constructor(
             canvas.drawPath(path, backgroundPaint)
         }
 
-        // Живой предпросмотр показывает ту же долю ширины, что и клавиатура:
-        // 100% — вся ширина окна, без боковых отступов. Карточки пресетов
-        // рисуют полную ширину с полем, им доли не нужны.
+        // Живой предпросмотр показывает ту же долю ширины, что и клавиатура.
+        // Карточки пресетов рисуют полную ширину с полем, им доли не нужны.
         val screenDp = resources.configuration.screenWidthDp.toFloat()
         val fraction = if (preset != null) {
             1f
@@ -211,19 +210,28 @@ class MiniKeyboardPreview @JvmOverloads constructor(
         } else {
             1f
         }
-        val block = if (preset != null) {
+        // Поля у краёв — в том же масштабе, что и на клавиатуре: крайние
+        // клавиши не прижаты к полосе системного жеста «назад».
+        val edge = if (preset != null || screenDp <= 0f) {
+            0f
+        } else {
+            prefs.edgeInset / screenDp * w
+        }
+        val rawBlock = if (preset != null) {
             w - pad * 2f
         } else {
             w * fraction.coerceIn(0f, 1f)
         }
+        val area = (w - edge * 2f).coerceAtLeast(1f)
+        val block = (rawBlock - edge * 2f).coerceIn(1f, area)
 
         val left = if (preset != null) {
             pad
         } else {
             when (Widths.side(prefs.oneHand)) {
-                -1 -> 0f
-                1 -> w - block
-                else -> (w - block) / 2f
+                -1 -> edge
+                1 -> edge + area - block
+                else -> edge + (area - block) / 2f
             }
         }
 
