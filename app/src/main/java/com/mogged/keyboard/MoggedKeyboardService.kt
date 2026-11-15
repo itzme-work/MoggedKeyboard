@@ -1629,7 +1629,11 @@ class MoggedKeyboardService : InputMethodService() {
      * Тональная кнопка панели: векторная иконка в скруглённом фоне
      * secondaryContainer с волной нажатия — как у функциональных клавиш.
      */
-    private fun panelIconButton(icon: Int, description: String, onClick: () -> Unit): ImageView =
+    private fun panelIconButton(
+        icon: Int,
+        description: String,
+        onClick: (ImageView) -> Unit
+    ): ImageView =
         ImageView(ctx).apply {
             scaleType = ImageView.ScaleType.FIT_CENTER
             setImageResource(icon)
@@ -1643,7 +1647,7 @@ class MoggedKeyboardService : InputMethodService() {
             setPadding(dp(6), dp(4), dp(6), dp(4))
             isClickable = true
             contentDescription = description
-            setOnClickListener { onClick() }
+            setOnClickListener { onClick(this) }
         }
 
     private fun runPanelAction(action: String, anchor: View) {
