@@ -12,6 +12,9 @@ object Widths {
     const val MIN_PERCENT = 50
     const val MIN_DP = 240f
 
+    /** Отступ у краёв не больше 12dp: шире — клавиши заметно уезжают от края. */
+    const val MAX_EDGE_DP = 12
+
     /** С этой ширины окна включаются планшетные пределы высоты. */
     const val TABLET_DP = 600f
 
@@ -32,6 +35,18 @@ object Widths {
     fun blockDp(availableDp: Float, percentValue: Int): Float {
         val raw = availableDp.coerceAtLeast(0f) * percent(percentValue) / 100f
         return raw.coerceAtLeast(MIN_DP)
+    }
+
+    /**
+     * Ширина блока клавиш с полями у краёв: выбранная доля окна минус два
+     * отступа, но не уже 240dp (иначе клавиши не читаются). Отступ входит
+     * в выбранную ширину: 100% — это окно минус поля, а не клавиши вплотную
+     * к полосе системного жеста «назад».
+     */
+    fun contentWidthDp(availableDp: Float, percentValue: Int, edgeInsetDp: Int): Float {
+        val block = blockDp(availableDp, percentValue)
+        val edge = edgeInsetDp.coerceIn(0, MAX_EDGE_DP)
+        return (block - 2f * edge).coerceAtLeast(MIN_DP)
     }
 
     /** Планшет — от 600dp по ширине окна. */
