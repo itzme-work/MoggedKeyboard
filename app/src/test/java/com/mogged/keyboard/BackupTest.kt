@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BackupTest {
@@ -350,5 +351,35 @@ class BackupTest {
         assertEquals(80, settings.backgroundDim)
         assertEquals("image", settings.background)
         assertFalse(settings.panelActions.contains("unknown"))
+    }
+
+    @Test
+    fun clipboardBackupKeepsOnlyFlagAndRetention() {
+        val settings = Backup.DEFAULT.copy(
+            clipHistory = true,
+            clipRetention = ClipboardHistory.RETENTION_HOUR
+        )
+        val json = Backup.toJson(settings)
+        assertTrue(json.contains("\"clipHistory\": true"))
+        assertTrue(json.contains("\"clipRetention\": \"hour\""))
+        // Содержимого и ключа в копии нет: только настройка.
+        assertFalse(json.contains("clipboard.bin"))
+        assertFalse(json.contains("AES"))
+
+        val restored = Backup.parse(json)!!
+        assertTrue(restored.clipHistory)
+        assertEquals(ClipboardHistory.RETENTION_HOUR, restored.clipRetention)
+
+        val unknown = """
+            {
+              "app": "mogged-keyboard",
+              "schema": 1,
+              "clipRetention": "месяц"
+            }
+        """.trimIndent()
+        assertEquals(
+            ClipboardHistory.RETENTION_DAY,
+            Backup.parse(unknown)!!.clipRetention
+        )
     }
 }
