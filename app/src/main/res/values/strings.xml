@@ -115,6 +115,7 @@
     <string name="elevation_label">Тень клавиш</string>
     <string name="key_alpha_label">Прозрачность клавиш</string>
     <string name="key_alpha_value_short">%1$d%%</string>
+    <string name="key_alpha_hint">На своей картинке клавиши не прозрачнее 70%: иначе подписи не читаются</string>
     <string name="pref_gradient">Градиент от акцента</string>
     <string name="pref_animations">Анимации нажатия</string>
 
@@ -217,9 +218,9 @@
 
     <!-- Умная пунктуация и инкогнито -->
     <string name="punctuation_title">Умная пунктуация</string>
-    <string name="punctuation_hint">По умолчанию всё выключено. Замены не работают в адресах, почте, путях, флагах и полях без подсказок; в английской раскладке ставятся парные лапки. Backspace после замены возвращает набранное.</string>
+    <string name="punctuation_hint">По умолчанию всё выключено. Замены не работают в адресах, почте, путях, флагах и полях без подсказок; тире ставится по пробелу, поэтому «ls --help» не ломается, а в английской раскладке ставятся парные лапки. Backspace после замены возвращает набранное.</string>
     <string name="pref_smart_quotes">Кавычки-ёлочки</string>
-    <string name="pref_smart_dash">Два дефиса — тире</string>
+    <string name="pref_smart_dash">Два дефиса и пробел — тире</string>
     <string name="pref_smart_ellipsis">Три точки — многоточие</string>
     <string name="pref_smart_space">Пробел после знака</string>
     <string name="pref_smart_space_hint">«Привет,как дела» превращается в «Привет, как дела».</string>
@@ -228,7 +229,7 @@
 
     <!-- Своя картинка -->
     <string name="bg_image_title">Своя картинка</string>
-    <string name="bg_image_hint">Картинка уменьшается до 1080 px, поворачивается по EXIF и обрезается по центру; хранится в приложении. На фото прозрачность клавиш не ниже 70 процентов, иначе подписи тонут. В резервную копию картинка не входит.</string>
+    <string name="bg_image_hint">Картинка уменьшается до 1080 px, поворачивается так, как снята, и заполняет фон без растяжения; хранится в приложении. На фото прозрачность клавиш не ниже 70 процентов, иначе подписи тонут. В резервную копию картинка не входит.</string>
     <string name="bg_image_pick">Выбрать картинку</string>
     <string name="bg_image_remove">Удалить картинку</string>
     <string name="bg_image_saved">Картинка установлена</string>
