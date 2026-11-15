@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Монохромный значок (Android 13+): силуэт клавиши с вырезанной «M».
+    Система сама красит его под обои, поэтому цветов здесь нет.
+    Буква — один замкнутый контур: два контура на стыках давали бы
+    залитые места вместо дыры.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <path
+        android:fillColor="#FFFFFF"
+        android:fillType="evenOdd"
+        android:pathData="M38,26 H70 A14,14 0 0 1 84,40 V68 A14,14 0 0 1 70,82 H38 A14,14 0 0 1 24,68 V40 A14,14 0 0 1 38,26 Z M36,68 L36,40 L44,40 L54,62 L64,40 L72,40 L72,68 Z" />
+</vector>
