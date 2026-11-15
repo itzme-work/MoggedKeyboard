@@ -135,6 +135,9 @@ class MainActivity : AppCompatActivity() {
     /** Подсказка про одну руку на всю ширину показана — не повторяем. */
     private var widthHintShown = false
 
+    /** Экран сам ставит переключатели — сохранять не надо. */
+    private var syncingSwitches = false
+
     /** Экспорт: системный диалог «создать документ». */
     private val exportLauncher = registerForActivityResult(
         ActivityResultContracts.CreateDocument("application/json")
@@ -220,7 +223,15 @@ class MainActivity : AppCompatActivity() {
         // Обработка картинки живёт отдельно от экрана: после поворота
         // подписываемся заново и показываем, что она ещё идёт.
         Images.addListener(imageWorkDone)
-        showImageBusy(Images.isBusy())
+        val busy = Images.isBusy()
+        showImageBusy(busy)
+        // Пока экран был свёрнут, работы могли закончиться без подписки:
+        // приводим переключатели и предпросмотр к тому, что уже в настройках.
+        if (!busy) {
+            syncImageUi()
+            // Обратный вызов той работы уже некому показывать.
+            imageDone = null
+        }
     }
 
     override fun onStop() {
@@ -412,6 +423,14 @@ class MainActivity : AppCompatActivity() {
                 widthHintShown = true
                 toast(R.string.one_hand_width_hint)
             }
+            miniPreview.refresh()
+        }
+
+        setupSlider(
+            R.id.sldEdge, R.id.edgeValue, 0f, 12f, 2f,
+            prefs.edgeInset, R.string.edge_value_short
+        ) {
+            prefs.edgeInset = it
             miniPreview.refresh()
         }
 
@@ -911,14 +930,18 @@ class MainActivity : AppCompatActivity() {
 
     /**
      * Высота для ползунка: на планшете по умолчанию выше, а сохранённое
-     * значение не выходит за новые границы.
+     * значение не выходит за новые границы. В настройки ничего не пишем:
+     * пока ползунок не двигали, значение остаётся «по умолчанию» и следует
+     * за экраном (поворот, складной).
      */
     private fun heightForSlider(): Int {
         val width = screenWidthDp()
-        if (!prefs.store.contains("height")) {
-            prefs.height = Widths.defaultHeightDp(width)
+        val shown = if (prefs.store.contains("height")) {
+            prefs.height
+        } else {
+            Widths.defaultHeightDp(width)
         }
-        return prefs.height.coerceIn(Widths.MIN_HEIGHT_DP, Widths.maxHeightDp(width))
+        return shown.coerceIn(Widths.MIN_HEIGHT_DP, Widths.maxHeightDp(width))
     }
 
     /** Пример отклика при смене характера вибрации. */
@@ -989,7 +1012,21 @@ class MainActivity : AppCompatActivity() {
     private fun bindSwitch(id: Int, value: Boolean, save: (Boolean) -> Unit) {
         val view = findViewById<MaterialSwitch>(id)
         view.isChecked = value
-        view.setOnCheckedChangeListener { _, checked -> save(checked) }
+        view.setOnCheckedChangeListener { _, checked ->
+            // Программная установка (возврат на экран) не должна
+            // записывать настройку и запускать работу заново.
+            if (syncingSwitches) return@setOnCheckedChangeListener
+            save(checked)
+        }
+    }
+
+    /** Поставить переключатель из настроек, не вызывая сохранение. */
+    private fun setSwitch(id: Int, checked: Boolean) {
+        val view = findViewById<MaterialSwitch>(id)
+        if (view.isChecked == checked) return
+        syncingSwitches = true
+        view.isChecked = checked
+        syncingSwitches = false
     }
 
     private fun setupSlider(
@@ -1009,14 +1046,17 @@ class MainActivity : AppCompatActivity() {
         label.text = getString(labelRes, initial.toInt())
 
         // Порядок важен: сначала границы и шаг, потом значение.
+        // Слушатель — последним и только на действия пользователя:
+        // программная установка не должна записывать настройку (иначе
+        // открытие экрана записывало бы высоту «по умолчанию»).
         slider.valueTo = to
         slider.valueFrom = from
         slider.stepSize = step
         slider.value = initial
-        slider.addOnChangeListener { _, current, _ ->
+        slider.addOnChangeListener { _, current, fromUser ->
             val int = current.toInt()
             label.text = getString(labelRes, int)
-            save(int)
+            if (fromUser) save(int)
         }
     }
 
@@ -1279,11 +1319,16 @@ class MainActivity : AppCompatActivity() {
      * поэтому всё состояние уже сохранено в работе, а тут только показ.
      */
     private val imageWorkDone: (Boolean) -> Unit = { ok ->
-        showImageBusy(false)
+        // В очереди могла остаться ещё работа: полоску убираем только
+        // когда очередь действительно пуста.
+        val busy = Images.isBusy()
+        showImageBusy(busy)
         miniPreview.reloadImage()
-        val done = imageDone
-        imageDone = null
-        done?.invoke(ok)
+        if (!busy) {
+            val done = imageDone
+            imageDone = null
+            done?.invoke(ok)
+        }
     }
 
     private fun pickImage(uri: Uri) {
@@ -1299,7 +1344,7 @@ class MainActivity : AppCompatActivity() {
         }) { ok ->
             if (ok) {
                 // Градиент и картинка взаимоисключающие.
-                findViewById<MaterialSwitch>(R.id.swGradient).isChecked = false
+                syncImageUi()
                 toast(R.string.bg_image_saved)
             } else {
                 toast(R.string.bg_image_failed)
@@ -1320,6 +1365,19 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshImageButtons() {
         findViewById<Button>(R.id.btnRemoveImage).isEnabled = Images.exists(this)
+    }
+
+    /**
+     * Показать на экране то, что уже лежит в настройках: переключатели
+     * «Градиент» и «Размытие» и предпросмотр. Нужно после возврата на
+     * экран — работа могла закончиться, пока подписки не было, и тогда
+     * «Градиент» остался бы включённым при картинке в настройках.
+     */
+    private fun syncImageUi() {
+        setSwitch(R.id.swGradient, prefs.background == "gradient")
+        setSwitch(R.id.swBlur, prefs.backgroundBlur)
+        miniPreview.reloadImage()
+        refreshImageButtons()
     }
 
     private fun resetLook() = with(Backup.DEFAULT) {
@@ -1343,6 +1401,7 @@ class MainActivity : AppCompatActivity() {
         prefs.backgroundImage = backgroundImage
         prefs.backgroundDim = backgroundDim
         prefs.backgroundBlur = backgroundBlur
+        prefs.edgeInset = edgeInset
     }
 
     private fun resetInput() = with(Backup.DEFAULT) {
