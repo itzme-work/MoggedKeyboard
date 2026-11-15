@@ -119,19 +119,10 @@ class MiniKeyboardPreview @JvmOverloads constructor(
     private var photoLoaded = false
 
     /** Средний тон фото с затемнением — фон под полупрозрачными клавишами. */
-    private var photoBase = 0
-    private var photoBaseFor: Bitmap? = null
-    private var photoBaseDim = -1
+    private val photoTone = PhotoTone { image, dim -> Images.averageColor(image as Bitmap, dim) }
 
     /** Средний тон фото с затемнением: от него считаются подписи. */
-    private fun photoBaseColor(image: Bitmap): Int {
-        if (image !== photoBaseFor || prefs.backgroundDim != photoBaseDim) {
-            photoBase = Images.averageColor(image, prefs.backgroundDim)
-            photoBaseFor = image
-            photoBaseDim = prefs.backgroundDim
-        }
-        return photoBase
-    }
+    private fun photoBaseColor(image: Bitmap): Int = photoTone.of(image, prefs.backgroundDim)
 
     /** Перерисовать после изменения настроек вида. */
     fun refresh() {
@@ -173,10 +164,10 @@ class MiniKeyboardPreview @JvmOverloads constructor(
         val gradient = preset == null && prefs.background == "gradient"
         val photoOn = preset == null && prefs.background == "image"
         // На фото клавиши не прозрачнее 70%, иначе подписи тонут в светлом снимке.
-        val alpha = when {
-            preset != null -> 100
-            photoOn -> prefs.keyAlpha.coerceAtLeast(70)
-            else -> prefs.keyAlpha
+        val alpha = if (preset != null) {
+            100
+        } else {
+            KeyAlpha.shown(prefs.background, prefs.keyAlpha)
         }
         val target = if (preset != null) {
             Contrast.STANDARD.target
