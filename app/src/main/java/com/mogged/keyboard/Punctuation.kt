@@ -53,9 +53,12 @@ object Punctuation {
     fun protectedField(inputType: Int, incognito: Boolean): Boolean {
         if (incognito) return true
         val cls = inputType and CLASS_MASK
+        // TYPE_NULL: поле не сообщило тип — так работают терминалы и свои
+        // редакторы, где замены только мешают.
+        if (cls == 0) return true
         if (cls == CLASS_NUMBER || cls == CLASS_PHONE) return true
         // Дата, время и прочие не текстовые поля — не трогаем.
-        if (cls != CLASS_TEXT) return cls != 0
+        if (cls != CLASS_TEXT) return true
         if (inputType and FLAG_NO_SUGGESTIONS != 0) return true
         return when (inputType and VARIATION_MASK) {
             VARIATION_PASSWORD,
@@ -85,7 +88,8 @@ object Punctuation {
         if (token.contains('_') || token.contains('\\') || token.contains('`')) return true
         if (token.contains('$')) return true
         // Флаги командной строки: --help, --version — но не одиночное тире.
-        if (token.startsWith("--")) return true
+        // Голое «--» флагом не считаем: между словами это тире.
+        if (token.startsWith("--") && token.length > 2) return true
         return false
     }
 
@@ -113,8 +117,13 @@ object Punctuation {
             return Swap(0, quote, "\"")
         }
 
-        if (typed == "-" && rules.dash && before.endsWith("-") && !before.endsWith("--")) {
-            return Swap(1, "—", "--")
+        // Тире ставится не на втором дефисе, а на пробеле после него:
+        // « -- » → «— », а «ls --help» остаётся целым.
+        if (typed == " " && rules.dash && before.endsWith("--") &&
+            !before.endsWith("---") &&
+            (before.length == 2 || before[before.length - 3].isWhitespace())
+        ) {
+            return Swap(2, "— ", "-- ")
         }
 
         if (typed == "." && rules.ellipsis && before.endsWith("..")) {
