@@ -26,6 +26,7 @@ class PunctuationTest {
         assertFalse(rules.autospace)
         assertNull(Punctuation.swap(rules, "\"", "привет "))
         assertNull(Punctuation.swap(rules, "-", "слово -"))
+        assertNull(Punctuation.swap(rules, " ", "слово --"))
         assertNull(Punctuation.swap(rules, ".", "ждал.."))
         assertFalse(Punctuation.needsSpace(rules, "к", "привет,"))
     }
@@ -58,12 +59,27 @@ class PunctuationTest {
     }
 
     @Test
-    fun doubleDashBecomesTiret() {
-        val swap = Punctuation.swap(on, "-", "слово -")
+    fun doubleDashBecomesTiretOnSpace() {
+        // Тире ставится не на втором дефисе, а на пробеле после «--»:
+        // иначе ломаются флаги вроде «ls --help».
+        val swap = Punctuation.swap(on, " ", "слово --")
         assertNotNull(swap)
-        assertEquals("—", swap!!.insert)
-        assertEquals(1, swap.deleteBefore)
-        assertEquals("--", swap.original)
+        assertEquals("— ", swap!!.insert)
+        assertEquals(2, swap.deleteBefore)
+        assertEquals("-- ", swap.original)
+        // В начале строки — тоже тире.
+        assertNotNull(Punctuation.swap(on, " ", "--"))
+    }
+
+    @Test
+    fun dashDoesNotTouchFlags() {
+        assertNull("первый дефис", Punctuation.swap(on, "-", "ls -"))
+        assertNull("второй дефис", Punctuation.swap(on, "-", "ls --"))
+        assertNull("третий дефис", Punctuation.swap(on, "-", "ls ---"))
+        assertNull("выключено", Punctuation.swap(on.copy(dash = false), " ", "слово --"))
+        // Дефисы без пробела перед ними — не тире.
+        assertNull("внутри слова", Punctuation.swap(on, " ", "слово--"))
+        assertNull("три дефиса", Punctuation.swap(on, " ", "слово ---"))
     }
 
     @Test
@@ -135,6 +151,8 @@ class PunctuationTest {
         assertTrue("телефон", Punctuation.protectedField(phone, false))
         // Инкогнито выключает замены в любом поле.
         assertTrue("инкогнито", Punctuation.protectedField(plain, true))
+        // Поле не сообщило тип (TYPE_NULL) — так работают терминалы.
+        assertTrue("нет типа", Punctuation.protectedField(0, false))
         assertFalse("обычный текст", Punctuation.protectedField(plain, false))
     }
 
@@ -145,7 +163,7 @@ class PunctuationTest {
         assertTrue("сайт", Punctuation.codeLike("www.example.com"))
         assertTrue("путь", Punctuation.codeLike("cd /storage/emulated/0"))
         assertTrue("флаг", Punctuation.codeLike("git --help"))
-        assertTrue("начало флага", Punctuation.codeLike("--"))
+        assertFalse("голое тире", Punctuation.codeLike("слово --"))
         assertTrue("переменная", Punctuation.codeLike("echo \$HOME"))
         assertTrue("подчёркивания", Punctuation.codeLike("smart_space"))
         assertTrue("обратный слэш", Punctuation.codeLike("C:\\Users"))
@@ -159,8 +177,12 @@ class PunctuationTest {
     @Test
     fun originalTextIsRestoredFromSwap() {
         // Backspace после замены возвращает ровно то, что набрали.
-        for (typed in listOf("\"", "-", ".")) {
-            val before = if (typed == "-") "a-" else if (typed == ".") "a.." else "a "
+        for (typed in listOf("\"", " ", ".")) {
+            val before = when (typed) {
+                " " -> "a--"
+                "." -> "a.."
+                else -> "a "
+            }
             val swap = Punctuation.swap(on, typed, before)
             assertNotNull(swap)
             assertTrue(
