@@ -12,6 +12,7 @@ object Panel {
     const val COPY = "copy"
     const val CUT = "cut"
     const val PASTE = "paste"
+    const val HISTORY = "history"
     const val UNDO = "undo"
     const val REDO = "redo"
     const val LEFT = "left"
@@ -22,11 +23,11 @@ object Panel {
 
     /** Все кнопки в обычном порядке. */
     val ACTIONS = listOf(
-        ALL, COPY, CUT, PASTE, UNDO, REDO, LEFT, RIGHT, ONE_HAND, INCOGNITO, SETTINGS
+        ALL, COPY, CUT, PASTE, HISTORY, UNDO, REDO, LEFT, RIGHT, ONE_HAND, INCOGNITO, SETTINGS
     )
 
     const val DEFAULT =
-        "all,copy,cut,paste,undo,redo,left,right,onehand,incognito,settings"
+        "all,copy,cut,paste,history,undo,redo,left,right,onehand,incognito,settings"
 
     fun parse(value: String?): List<String> {
         if (value.isNullOrBlank()) return ACTIONS
@@ -43,6 +44,7 @@ object Panel {
         COPY -> R.drawable.ic_panel_copy
         CUT -> R.drawable.ic_panel_cut
         PASTE -> R.drawable.ic_panel_paste
+        HISTORY -> R.drawable.ic_panel_history
         UNDO -> R.drawable.ic_panel_undo
         REDO -> R.drawable.ic_panel_redo
         LEFT -> R.drawable.ic_panel_left
@@ -58,6 +60,7 @@ object Panel {
         COPY -> R.string.panel_copy_title
         CUT -> R.string.panel_cut_title
         PASTE -> R.string.panel_paste_title
+        HISTORY -> R.string.panel_history_title
         UNDO -> R.string.panel_undo_title
         REDO -> R.string.panel_redo_title
         LEFT -> R.string.panel_left_title
