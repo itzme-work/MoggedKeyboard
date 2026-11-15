@@ -11,8 +11,12 @@ import android.graphics.PixelFormat
 import android.graphics.RectF
 import android.graphics.drawable.Drawable
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import androidx.exifinterface.media.ExifInterface
 import java.io.File
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.Executors
 import kotlin.math.roundToInt
 
 /**
@@ -32,9 +36,57 @@ object Images {
     fun file(context: Context): File = File(context.filesDir, FILE)
     fun source(context: Context): File = File(context.filesDir, SOURCE)
 
+    // ── очередь работы ───────────────────────────────────────
+    // Один поток на всё: новая картинка во время размытия больше не пишет
+    // в тот же файл одновременно. Экран подписывается на окончание, поэтому
+    // поворот не теряет ни полоску ожидания, ни результат.
+
+    private val worker = Executors.newSingleThreadExecutor { task ->
+        Thread(task, "mogged-image").apply { isDaemon = true }
+    }
+    private val main = Handler(Looper.getMainLooper())
+    private val listeners = CopyOnWriteArrayList<(Boolean) -> Unit>()
+
+    @Volatile
+    private var busy = false
+
+    /** Идёт ли сейчас обработка: по этому флагу экран показывает полоску. */
+    fun isBusy(): Boolean = busy
+
+    /** Подписка на окончание работы. Обратный вызов приходит в главном потоке. */
+    fun addListener(listener: (Boolean) -> Unit) {
+        // Экран могли подписать дважды (поворот, возврат) — держим одну подписку.
+        listeners.remove(listener)
+        listeners.add(listener)
+    }
+
+    fun removeListener(listener: (Boolean) -> Unit) {
+        listeners.remove(listener)
+    }
+
+    /**
+     * Ставит работу в очередь. Пока она идёт, [isBusy] истинно,
+     * а подписчики получат результат в главном потоке.
+     */
+    fun submit(work: () -> Boolean) {
+        busy = true
+        worker.execute {
+            val ok = try {
+                work()
+            } catch (t: Throwable) {
+                false
+            }
+            busy = false
+            main.post {
+                for (listener in listeners) listener(ok)
+            }
+        }
+    }
+
     fun exists(context: Context): Boolean = file(context).isFile
 
     /** Сохраняет картинку из документа: поворачивает по EXIF, уменьшает, кладёт исходник. */
+    @Synchronized
     fun save(context: Context, uri: Uri, blur: Boolean): Boolean = try {
         val orientation = try {
             context.contentResolver.openInputStream(uri)?.use {
@@ -89,6 +141,7 @@ object Images {
      * Пересобирает показываемый файл из исходника: с размытием или без.
      * Так переключатель размытия не портит картинку повторной обработкой.
      */
+    @Synchronized
     fun applyBlur(context: Context, blur: Boolean): Boolean = try {
         val src = source(context)
         if (!src.isFile) {
@@ -111,6 +164,7 @@ object Images {
         false
     }
 
+    @Synchronized
     fun delete(context: Context) {
         try {
             file(context).delete()
