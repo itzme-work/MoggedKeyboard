@@ -27,7 +27,7 @@ class Prefs(context: Context) {
 
     /** Высота клавиатуры в dp. */
     var height: Int
-        get() = store.getInt("height", 280)
+        get() = store.getInt("height", Widths.PHONE_DEFAULT_HEIGHT_DP)
         set(value) = store.edit().putInt("height", value).apply()
 
     /** Тема клавиатуры: system, light, dark или amoled. */
