@@ -42,7 +42,8 @@ class BackupTest {
         elevation = 3,
         background = "gradient",
         keyAlpha = 60,
-        animations = false
+        animations = false,
+        edgeInset = 6
     )
 
     @Test
@@ -289,6 +290,42 @@ class BackupTest {
         assertEquals(false, settings.backgroundImage)
         assertEquals(40, settings.backgroundDim)
         assertEquals(false, settings.backgroundBlur)
+        assertEquals(4, settings.edgeInset)
+    }
+
+    @Test
+    fun importedSliderValuesSnapToSteps() {
+        // 333 при шаге 10 роняет Slider при открытии настроек, 73 при шаге 5
+        // встаёт между делениями. Копию приводим к сетке ещё при импорте.
+        val json = """
+            {
+              "app": "mogged-keyboard",
+              "schema": 1,
+              "height": 333,
+              "width": 73,
+              "keyFontScale": 112,
+              "keyAlpha": 63,
+              "backgroundDim": 41,
+              "edgeInset": 5
+            }
+        """.trimIndent()
+
+        val settings = Backup.parse(json)!!
+        assertEquals(330, settings.height)
+        assertEquals(75, settings.width)
+        assertEquals(110, settings.keyFontScale)
+        assertEquals(65, settings.keyAlpha)
+        assertEquals(40, settings.backgroundDim)
+        assertEquals(6, settings.edgeInset)
+
+        val tooFar = """
+            {
+              "app": "mogged-keyboard",
+              "schema": 1,
+              "edgeInset": 40
+            }
+        """.trimIndent()
+        assertEquals(12, Backup.parse(tooFar)!!.edgeInset)
     }
 
     @Test
