@@ -614,6 +614,14 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content" />
 
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="@string/key_alpha_hint"
+                android:textAppearance="?attr/textAppearanceBodySmall"
+                android:textColor="?attr/colorOnSurfaceVariant" />
+
             <com.google.android.material.materialswitch.MaterialSwitch
                 android:id="@+id/swGradient"
                 android:layout_width="match_parent"
@@ -711,6 +719,14 @@
                 android:layout_height="wrap_content"
                 android:minHeight="48dp"
                 android:text="@string/pref_bg_blur" />
+
+            <ProgressBar
+                android:id="@+id/imageProgress"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:indeterminate="true"
+                android:visibility="gone" />
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 
