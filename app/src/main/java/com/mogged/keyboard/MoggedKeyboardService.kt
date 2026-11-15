@@ -287,7 +287,7 @@ class MoggedKeyboardService : InputMethodService() {
                 1 -> Gravity.RIGHT
                 else -> Gravity.CENTER_HORIZONTAL
             }
-            setPadding(dp(4), dp(6), dp(4), dp(8))
+            setPadding(sidePadding(), dp(6), sidePadding(), dp(8))
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 keyboardHeight() + panelHeight()
@@ -305,7 +305,7 @@ class MoggedKeyboardService : InputMethodService() {
             )
         }
 
-        // На планшетах и складных не растягиваем клавиши на всю ширину экрана.
+        // На планшетах и складных клавиши не растягиваем сверх выбранной ширины.
         val box = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
         }
@@ -327,7 +327,7 @@ class MoggedKeyboardService : InputMethodService() {
             val cutout = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
             val bottom = maxOf(nav.bottom, gestures.bottom, cutout.bottom)
                 .coerceAtMost(dp(48))
-            view.setPadding(dp(4), dp(6), dp(4), dp(8) + bottom)
+            view.setPadding(sidePadding(), dp(6), sidePadding(), dp(8) + bottom)
             insets
         }
 
@@ -1130,7 +1130,7 @@ class MoggedKeyboardService : InputMethodService() {
             addView(row)
         }
 
-        val maxWidth = (resources.displayMetrics.widthPixels - dp(16)).coerceAtLeast(dp(160))
+        val maxWidth = (contentWidth() - dp(8)).coerceAtLeast(dp(160))
         scroll.measure(
             View.MeasureSpec.makeMeasureSpec(maxWidth, View.MeasureSpec.AT_MOST),
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
@@ -1222,8 +1222,10 @@ class MoggedKeyboardService : InputMethodService() {
             row.addView(item)
         }
 
+        // Панель считается от ширины окна: в разделённом экране не вылезает.
+        val maxWidth = (contentWidth() - dp(8)).coerceAtLeast(dp(160))
         row.measure(
-            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+            View.MeasureSpec.makeMeasureSpec(maxWidth, View.MeasureSpec.AT_MOST),
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
         )
         val width = row.measuredWidth
@@ -1977,8 +1979,10 @@ class MoggedKeyboardService : InputMethodService() {
         stopRepeat()
         // Новый показ клавиатуры — двойной тап по Shift не тянем из прошлого раза.
         lastShiftTap = 0L
-        // Отмена и повтор проверяются заново в каждом поле.
+        // Отмена и повтор проверяются заново в каждом поле: и запрет, и счётчик
+        // промахов. Иначе промах в одном поле плюс промах в другом прятали кнопки.
         undoUnsupported = false
+        undoMisses = 0
         pendingSwap = null
         dismissAlternatives()
         dismissOneHandPanel()
@@ -2037,10 +2041,28 @@ class MoggedKeyboardService : InputMethodService() {
     private fun dp(value: Int): Int =
         (value * resources.displayMetrics.density).roundToInt()
 
-    /** Ширина клавиатуры: процент из настроек, на планшете — не шире 720dp. */
-    private fun contentWidth(): Int {
+    /** Ширина окна клавиатуры в dp: своя в разделённом экране и плавающем окне. */
+    private fun windowWidthDp(): Float {
+        val config = resources.configuration.screenWidthDp
+        if (config > 0) return config.toFloat()
         val metrics = resources.displayMetrics
-        val available = metrics.widthPixels / metrics.density - 8f
+        return metrics.widthPixels / metrics.density
+    }
+
+    /** Высота окна в dp — для потолка высоты клавиатуры. */
+    private fun windowHeightDp(): Int {
+        val config = resources.configuration.screenHeightDp
+        if (config > 0) return config
+        val metrics = resources.displayMetrics
+        return (metrics.heightPixels / metrics.density).roundToInt()
+    }
+
+    /**
+     * Ширина клавиатуры: процент от ширины окна. 100% — вся ширина,
+     * без боковых отступов; верхнего предела нет.
+     */
+    private fun contentWidth(): Int {
+        val available = windowWidthDp()
         val block = Widths.blockDp(available, widthPercent).coerceAtMost(available)
         return dp(block.roundToInt())
     }
@@ -2054,17 +2076,25 @@ class MoggedKeyboardService : InputMethodService() {
         val rowHeight = heightDp / rows.coerceAtLeast(1)
         val scale = fontScale.coerceIn(80, 120) / 100f
         letterSize = (minOf(keyWidth * 0.72f, rowHeight * 0.34f) * scale)
-            .coerceIn(11f, 31f)
-        specialSize = (letterSize * 0.8f).coerceIn(9f, 24f)
+            .coerceIn(11f, 36f)
+        // Панель и подсказки масштабируются вместе с буквами.
+        specialSize = (letterSize * 0.8f).coerceIn(9f, 29f)
     }
 
-    /** Высота из настроек, но не больше половины экрана (важно в альбомной ориентации). */
+    /** Высота из настроек, но не больше половины окна (важно в альбомной ориентации). */
     private fun keyboardHeight(): Int {
-        val metrics = resources.displayMetrics
-        val screenDp = (metrics.heightPixels / metrics.density).roundToInt()
-        val maxDp = (screenDp * 0.5f).roundToInt().coerceAtLeast(200)
-        return dp(prefs.height.coerceAtMost(maxDp))
+        val maxDp = (windowHeightDp() * 0.5f).roundToInt().coerceAtLeast(200)
+        // Пока высоту не трогали, на планшете она выше — и без захода в настройки.
+        val stored = if (prefs.store.contains("height")) {
+            prefs.height
+        } else {
+            Widths.defaultHeightDp(windowWidthDp().toInt())
+        }
+        return dp(stored.coerceAtMost(maxDp))
     }
+
+    /** Боковой отступ: при 100% ширины его нет — клавиатура во всю ширину окна. */
+    private fun sidePadding(): Int = if (widthPercent >= 100) 0 else dp(4)
 
     /** Полоска панели инструментов добавляется к высоте клавиатуры. */
     private fun panelHeight(): Int = if (panelOn) dp(38) else 0
