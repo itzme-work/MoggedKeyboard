@@ -17,7 +17,11 @@ import com.google.android.material.color.DynamicColorsOptions
 class MoggedApp : Application() {
     override fun onCreate() {
         super.onCreate()
-        applyNightMode(Prefs(this).theme)
+        val prefs = Prefs(this)
+        // Правка старых настроек — здесь, а не в геттере Prefs: чтение
+        // настройки не должно писать в файл.
+        prefs.migrate()
+        applyNightMode(prefs.theme)
     }
 
     companion object {
