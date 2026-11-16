@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Сеть у клавиатуры нужна только для обновлений с GitHub.
+    Открытый HTTP запрещён всем, включая перечисленные хосты: скачивать
+    APK по незашифрованному каналу нельзя. Домены перечислены явно, чтобы
+    список разрешённых адресов было видно рядом с кодом (сам список живёт
+    в UpdateManager.ALLOWED_HOSTS).
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="false">github.com</domain>
+        <domain includeSubdomains="false">api.github.com</domain>
+        <domain includeSubdomains="false">objects.githubusercontent.com</domain>
+        <domain includeSubdomains="false">release-assets.githubusercontent.com</domain>
+    </domain-config>
+</network-security-config>
