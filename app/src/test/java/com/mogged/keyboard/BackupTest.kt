@@ -401,4 +401,24 @@ class BackupTest {
         assertEquals(PanelMode.TOOLS, Backup.parse(broken)!!.panelMode)
         assertEquals(PanelMode.TOOLS, Backup.DEFAULT.panelMode)
     }
+
+    @Test
+    fun clipSkipCodesIsBackedUpAndDefaultsOn() {
+        assertTrue(Backup.DEFAULT.clipSkipCodes)
+
+        val changed = Backup.DEFAULT.copy(clipSkipCodes = false)
+        val json = Backup.toJson(changed)
+        assertTrue(json.contains("\"clipSkipCodes\": false"))
+        assertFalse(Backup.parse(json)!!.clipSkipCodes)
+
+        // Старая копия без поля: правило включено, как в приложении.
+        val old = """
+            {
+              "app": "mogged-keyboard",
+              "schema": 1,
+              "clipHistory": true
+            }
+        """.trimIndent()
+        assertTrue(Backup.parse(old)!!.clipSkipCodes)
+    }
 }
