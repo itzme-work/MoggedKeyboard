@@ -54,6 +54,8 @@ data class Settings(
     /** История буфера в копию не входит: только флаг и срок. */
     val clipHistory: Boolean = false,
     val clipRetention: String = ClipboardHistory.RETENTION_DAY,
+    /** Одноразовые коды из СМС в историю не попадают. */
+    val clipSkipCodes: Boolean = true,
     /** Режим строки над клавишами: инструменты или быстрые вставки. */
     val panelMode: String = PanelMode.TOOLS
 )
@@ -102,6 +104,7 @@ object Backup {
         edgeInset = 4,
         clipHistory = false,
         clipRetention = ClipboardHistory.RETENTION_DAY,
+        clipSkipCodes = true,
         panelMode = PanelMode.TOOLS
     )
 
@@ -164,6 +167,7 @@ object Backup {
         edgeInset = prefs.edgeInset,
         clipHistory = prefs.clipHistory,
         clipRetention = prefs.clipRetention,
+        clipSkipCodes = prefs.clipSkipCodes,
         panelMode = prefs.panelMode
     )
 
@@ -216,6 +220,7 @@ object Backup {
         prefs.edgeInset = settings.edgeInset
         prefs.clipHistory = settings.clipHistory
         prefs.clipRetention = settings.clipRetention
+        prefs.clipSkipCodes = settings.clipSkipCodes
         prefs.panelMode = settings.panelMode
     }
 
@@ -282,6 +287,7 @@ object Backup {
         put("edgeInset", snap(clamp(settings.edgeInset, 0, 12), 0, 2))
         put("clipHistory", settings.clipHistory)
         put("clipRetention", ClipboardHistory.retention(settings.clipRetention))
+        put("clipSkipCodes", settings.clipSkipCodes)
         put("panelMode", PanelMode.parse(settings.panelMode))
     }.toString(2)
 
@@ -379,6 +385,7 @@ object Backup {
                 ClipboardHistory.RETENTIONS,
                 DEFAULT.clipRetention
             ),
+            clipSkipCodes = json.optBoolean("clipSkipCodes", DEFAULT.clipSkipCodes),
             panelMode = pick(
                 json.optString("panelMode"),
                 PanelMode.MODES,
