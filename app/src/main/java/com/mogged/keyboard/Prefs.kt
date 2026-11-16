@@ -286,6 +286,15 @@ class Prefs(context: Context) {
             .putString("clip_retention", ClipboardHistory.retention(value))
             .apply()
 
+    /**
+     * Не сохранять одноразовые коды из СМС: по умолчанию включено.
+     * Правило простое (4–8 цифр), поэтому его можно выключить, если
+     * в историю нужны короткие числа.
+     */
+    var clipSkipCodes: Boolean
+        get() = store.getBoolean("clip_skip_codes", true)
+        set(value) = store.edit().putBoolean("clip_skip_codes", value).apply()
+
     /** Номер очистки истории: по нему клавиатура понимает, что кэш устарел. */
     var clipEpoch: Int
         get() = store.getInt("clip_epoch", 0)
