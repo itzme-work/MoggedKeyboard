@@ -38,6 +38,22 @@ object Panel {
     fun format(actions: List<String>): String = actions.filter { it in ACTIONS }.distinct()
         .joinToString(",")
 
+    /**
+     * Кнопка «История» в настройках из 0.11.1. Добавляем её один раз после
+     * «Вставить», чтобы после обновления кнопка была видна; дальше состав
+     * панели снова принадлежит человеку. Чистая функция: запись в настройки
+     * делает [Prefs.migrate], её вызывает приложение при запуске.
+     */
+    fun migrated(actions: List<String>): List<String> {
+        if (HISTORY in actions) return actions
+        val at = actions.indexOf(PASTE)
+        return if (at >= 0) {
+            actions.toMutableList().apply { add(at + 1, HISTORY) }
+        } else {
+            actions + HISTORY
+        }
+    }
+
     /** Векторная иконка кнопки: панель не рисует подписи текстом. */
     fun iconRes(action: String): Int = when (action) {
         ALL -> R.drawable.ic_panel_select_all
