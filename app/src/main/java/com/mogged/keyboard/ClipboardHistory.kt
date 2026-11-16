@@ -28,6 +28,9 @@ object ClipboardHistory {
     /** Всё, что длиннее, не история, а документ — не сохраняем. */
     const val MAX_LENGTH = 5000
 
+    /** Одноразовый код из СМС: от четырёх до восьми цифр и больше ничего. */
+    private val ONE_TIME_CODE = Regex("^[0-9]{4,8}$")
+
     const val RETENTION_HOUR = "hour"
     const val RETENTION_DAY = "day"
     const val RETENTION_NEVER = "never"
@@ -47,8 +50,15 @@ object ClipboardHistory {
         else -> 0L
     }
 
-    /** Пустое и слишком длинное не сохраняем. */
-    fun accepts(text: String): Boolean = text.isNotBlank() && text.length <= MAX_LENGTH
+    /**
+     * Одноразовый код (СМС, вход по коду) — это не «текст для вставки позже»:
+     * живёт минуту и в истории остаётся лишним секретом.
+     */
+    fun isOneTimeCode(text: String): Boolean = ONE_TIME_CODE.matches(text.trim())
+
+    /** Пустое, слишком длинное и одноразовые коды не сохраняем. */
+    fun accepts(text: String): Boolean =
+        text.isNotBlank() && text.length <= MAX_LENGTH && !isOneTimeCode(text)
 
     /**
      * Добавить копию. Повтор не дублируется, а поднимается наверх
@@ -146,6 +156,9 @@ object ClipboardHistory {
                 )
             )
         }
+        // Файл могли поправить руками или он остался от старой версии:
+        // закреплённых всё равно не больше десяти.
+        trim(list)
         return list
     }
 }
