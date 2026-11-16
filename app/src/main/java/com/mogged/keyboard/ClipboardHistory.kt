@@ -52,20 +52,32 @@ object ClipboardHistory {
 
     /**
      * Одноразовый код (СМС, вход по коду) — это не «текст для вставки позже»:
-     * живёт минуту и в истории остаётся лишним секретом.
+     * живёт минуту и в истории остаётся лишним. Но правило отсекает любое
+     * число из 4–8 цифр, поэтому его можно выключить в настройках.
      */
     fun isOneTimeCode(text: String): Boolean = ONE_TIME_CODE.matches(text.trim())
 
-    /** Пустое, слишком длинное и одноразовые коды не сохраняем. */
-    fun accepts(text: String): Boolean =
-        text.isNotBlank() && text.length <= MAX_LENGTH && !isOneTimeCode(text)
+    /** Непустой текст в пределах длины. Коды проверяются отдельно. */
+    fun valid(text: String): Boolean = text.isNotBlank() && text.length <= MAX_LENGTH
+
+    /**
+     * Пустое, слишком длинное и (при [skipCodes]) одноразовые коды
+     * не сохраняем.
+     */
+    fun accepts(text: String, skipCodes: Boolean = true): Boolean =
+        valid(text) && !(skipCodes && isOneTimeCode(text))
 
     /**
      * Добавить копию. Повтор не дублируется, а поднимается наверх
      * с новым временем; закрепление у повтора сохраняется.
      */
-    fun add(list: MutableList<ClipEntry>, text: String, now: Long): Boolean {
-        if (!accepts(text)) return false
+    fun add(
+        list: MutableList<ClipEntry>,
+        text: String,
+        now: Long,
+        skipCodes: Boolean = true
+    ): Boolean {
+        if (!accepts(text, skipCodes)) return false
         val pinned = list.firstOrNull { it.text == text }?.pinned ?: false
         list.removeAll { it.text == text }
         list.add(0, ClipEntry(text, now, pinned))
@@ -147,7 +159,9 @@ object ClipboardHistory {
             if (list.size >= MAX) break
             val item = array.optJSONObject(i) ?: continue
             val text = item.optString("text").orEmpty()
-            if (!accepts(text)) continue
+            // Уже сохранённые коды при чтении не выкидываем: переключатель
+            // мог быть выключен, когда запись появилась.
+            if (!valid(text)) continue
             list.add(
                 ClipEntry(
                     text = text,
