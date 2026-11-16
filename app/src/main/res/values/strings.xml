@@ -273,4 +273,35 @@
     <string name="bg_dim_label">Затемнение картинки</string>
     <string name="bg_dim_value_short">%1$d%%</string>
     <string name="pref_bg_blur">Размытие</string>
+
+    <!-- 0.13.0: режимы строки над клавишами -->
+    <string name="panel_mode_tools">Инструменты</string>
+    <string name="panel_mode_inserts">Быстрые вставки</string>
+    <string name="panel_mode_state">Режим: %1$s</string>
+    <string name="panel_mode_hint">Режим: %1$s. Долгое нажатие — свернуть строку</string>
+    <string name="panel_inserts_hidden">Скрыто в защищённом поле</string>
+    <string name="panel_inserts_empty">Быстрых вставок пока нет</string>
+    <string name="panel_inserts_settings">Открыть настройки</string>
+    <string name="panel_inserts_hint_chip">Настройки → Ввод</string>
+
+    <!-- 0.13.0: история буфера -->
+    <string name="clip_current">Текущий буфер</string>
+    <string name="clip_save">Сохранить</string>
+    <string name="clip_saved">Добавлено в историю</string>
+    <string name="clip_count">Записей: %1$d из %2$d</string>
+    <string name="clip_pinned_icon">Закреплено</string>
+    <string name="clip_first_hint_title">Что сохраняется</string>
+    <string name="clip_first_hint_text">Только текст до 5000 символов и не дольше выбранного срока. Пароли, PIN, числа, телефоны, почта, одноразовые коды из СМС и клипы, помеченные секретными, в историю не попадают. Файл зашифрован и лежит в приватной папке приложения.</string>
+    <string name="clip_first_hint_ok">Понятно</string>
+    <string name="clip_turn_off_title">Выключить историю?</string>
+    <string name="clip_turn_off_text">Новые копии перестанут сохраняться. Уже сохранённое можно удалить сейчас или оставить до конца срока.</string>
+    <string name="clip_turn_off_delete">Удалить историю</string>
+    <string name="clip_turn_off_keep">Оставить</string>
+
+    <!-- 0.13.0: копия и обновление -->
+    <string name="backup_templates_title">Шаблоны уйдут открытым текстом</string>
+    <string name="backup_templates_text">В резервной копии настройки и шаблоны лежат читаемым текстом: иначе копию нельзя перенести на другое устройство. Не выкладывайте файл в общий доступ. История буфера в копию не входит.</string>
+    <string name="backup_templates_ok">Продолжить</string>
+    <string name="update_signature_bad">Файл подписан другим ключом. Установка отменена — скачайте обновление заново.</string>
+    <string name="update_signature_none">Не удалось проверить подпись файла</string>
 </resources>
