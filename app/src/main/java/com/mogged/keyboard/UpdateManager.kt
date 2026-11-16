@@ -2,7 +2,9 @@ package com.mogged.keyboard
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import org.json.JSONObject
@@ -37,8 +39,7 @@ object UpdateManager {
         "api.github.com",
         "github.com",
         "objects.githubusercontent.com",
-        "release-assets.githubusercontent.com",
-        "raw.githubusercontent.com"
+        "release-assets.githubusercontent.com"
     )
 
     data class Update(
@@ -209,6 +210,71 @@ object UpdateManager {
     /** Разрешена ли установка APK из этого приложения. */
     fun canInstall(context: Context): Boolean =
         context.packageManager.canRequestPackageInstalls()
+
+    /**
+     * Совпадает ли подпись скачанного APK с подписью установленного
+     * приложения. Проверка перед установщиком: обновление с чужим ключом
+     * Android и сам не поставит, но лучше не доводить до экрана установки.
+     */
+    fun signatureMatches(context: Context, apk: File): Boolean {
+        val downloaded = apkSignatures(context, apk.absolutePath)
+        val installed = installedSignatures(context)
+        return downloaded.isNotEmpty() && downloaded == installed
+    }
+
+    /** Отпечаток подписи установленного приложения — для README и проверки руками. */
+    fun ownFingerprint(context: Context): String =
+        installedSignatures(context).firstOrNull().orEmpty()
+
+    /** Подписи APK-файла, ещё не установленного. */
+    private fun apkSignatures(context: Context, path: String): Set<String> {
+        val pm = context.packageManager
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val info = pm.getPackageArchiveInfo(path, PackageManager.GET_SIGNING_CERTIFICATES)
+                    ?: return emptySet()
+                val signers = info.signingInfo?.apkContentsSigners ?: return emptySet()
+                signers.map { digest(it.toByteArray()) }.toSet()
+            } else {
+                @Suppress("DEPRECATION")
+                val info = pm.getPackageArchiveInfo(path, PackageManager.GET_SIGNATURES)
+                    ?: return emptySet()
+                @Suppress("DEPRECATION")
+                val signers = info.signatures ?: return emptySet()
+                signers.map { digest(it.toByteArray()) }.toSet()
+            }
+        } catch (t: Throwable) {
+            emptySet()
+        }
+    }
+
+    /** Подписи установленного приложения: getPackageInfo, а не архив. */
+    private fun installedSignatures(context: Context): Set<String> {
+        val pm = context.packageManager
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val info = pm.getPackageInfo(
+                    context.packageName,
+                    PackageManager.GET_SIGNING_CERTIFICATES
+                )
+                val signers = info.signingInfo?.apkContentsSigners ?: return emptySet()
+                signers.map { digest(it.toByteArray()) }.toSet()
+            } else {
+                @Suppress("DEPRECATION")
+                val info = pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNATURES)
+                @Suppress("DEPRECATION")
+                val signers = info.signatures ?: return emptySet()
+                signers.map { digest(it.toByteArray()) }.toSet()
+            }
+        } catch (t: Throwable) {
+            emptySet()
+        }
+    }
+
+    private fun digest(bytes: ByteArray): String {
+        val sha = MessageDigest.getInstance("SHA-256").digest(bytes)
+        return sha.joinToString("") { b -> "%02X".format(b.toInt() and 0xff) }
+    }
 
     /** Экран «Установка неизвестных приложений» для нашего пакета. */
     fun openInstallPermission(context: Context) {
