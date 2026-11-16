@@ -126,4 +126,52 @@ class ClipboardHistoryTest {
         assertTrue(ClipboardHistory.fromJson("не json").isEmpty())
         assertTrue(ClipboardHistory.fromJson("[]").isEmpty())
     }
+
+    @Test
+    fun oneTimeCodesAreNotSaved() {
+        // Код из СМС: от четырёх до восьми цифр и больше ничего.
+        assertFalse(ClipboardHistory.accepts("1234"))
+        assertFalse(ClipboardHistory.accepts("12345678"))
+        assertFalse(ClipboardHistory.accepts(" 123456 "))
+        // Число другой длины — обычный текст.
+        assertTrue(ClipboardHistory.accepts("123"))
+        assertTrue(ClipboardHistory.accepts("123456789"))
+        // Буквы рядом — уже не код.
+        assertTrue(ClipboardHistory.accepts("код 1234"))
+        assertTrue(ClipboardHistory.accepts("1234-5678"))
+
+        val clips = mutableListOf<ClipEntry>()
+        assertFalse(ClipboardHistory.add(clips, "654321", 1L))
+        assertTrue(clips.isEmpty())
+    }
+
+    @Test
+    fun jsonCannotExceedPinnedLimit() {
+        // Файл могли поправить руками: закреплённых всё равно не больше 10.
+        val raw = buildString {
+            append("[")
+            for (i in 0 until 20) {
+                if (i > 0) append(",")
+                append("""{"text":"запись $i","time":$i,"pinned":true}""")
+            }
+            append("]")
+        }
+        val restored = ClipboardHistory.fromJson(raw)
+        assertEquals(ClipboardHistory.MAX_PINNED, restored.count { it.pinned })
+        assertTrue(restored.size <= ClipboardHistory.MAX)
+    }
+
+    @Test
+    fun jsonSkipsCodesAndTooLongTexts() {
+        val raw = """
+            [
+              {"text":"111222","time":1,"pinned":false},
+              {"text":"обычный текст","time":2,"pinned":false},
+              {"text":"${"а".repeat(ClipboardHistory.MAX_LENGTH + 1)}","time":3,"pinned":false}
+            ]
+        """.trimIndent()
+        val restored = ClipboardHistory.fromJson(raw)
+        assertEquals(1, restored.size)
+        assertEquals("обычный текст", restored.first().text)
+    }
 }
