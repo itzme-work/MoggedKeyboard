@@ -205,6 +205,13 @@ class MainActivity : AppCompatActivity() {
             BuildConfig.VERSION_NAME,
             BuildConfig.VERSION_CODE
         )
+        findViewById<TextView>(R.id.aboutBuild).text = getString(
+            if (Officiality.isOfficial(UpdateManager.ownFingerprint(this))) {
+                R.string.about_build_official
+            } else {
+                R.string.about_build_unofficial
+            }
+        )
 
         showChangelog()
         refreshOnboarding()
@@ -510,6 +517,8 @@ class MainActivity : AppCompatActivity() {
             refreshClipCard()
         }
         refreshClipCard()
+
+        bindSwitch(R.id.swClipCodes, prefs.clipSkipCodes) { prefs.clipSkipCodes = it }
 
         val clipGroup = findViewById<MaterialButtonToggleGroup>(R.id.clipRetentionGroup)
         clipGroup.check(
@@ -1742,6 +1751,7 @@ class MainActivity : AppCompatActivity() {
         prefs.incognito = incognito
         prefs.clipHistory = clipHistory
         prefs.clipRetention = clipRetention
+        prefs.clipSkipCodes = clipSkipCodes
         prefs.panelMode = panelMode
     }
 
@@ -2061,6 +2071,7 @@ class MainActivity : AppCompatActivity() {
                     is UpdateManager.Download.Network -> getString(R.string.update_error)
                     is UpdateManager.Download.NoSpace -> getString(R.string.update_no_space)
                     is UpdateManager.Download.Corrupt -> getString(R.string.update_corrupt)
+                    is UpdateManager.Download.TooBig -> getString(R.string.update_too_big)
                 }
             }
         }.start()
