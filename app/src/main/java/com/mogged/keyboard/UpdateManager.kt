@@ -8,7 +8,9 @@ import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URI
 import java.net.URL
@@ -29,6 +31,15 @@ object UpdateManager {
     private const val UA = "MoggedKeyboard"
 
     const val APK_NAME = "MoggedKeyboard.apk"
+
+    /**
+     * Верхние границы ответа. APK сейчас около 5 МБ, 40 МБ — с большим
+     * запасом; описание релиза — маленький JSON, 256 КБ хватает.
+     * Без лимитов плохой сервер мог бы забить диск или подвесить загрузку.
+     */
+    const val MAX_APK_BYTES = 40L * 1024L * 1024L
+    const val MAX_JSON_BYTES = 256L * 1024L
+
     private const val VERSION_NAME = "version.json"
 
     /** Сколько редиректов готовы пройти, проверяя каждый хост. */
@@ -64,6 +75,34 @@ object UpdateManager {
         data object Network : Download
         data object NoSpace : Download
         data object Corrupt : Download
+
+        /** Сервер отдаёт больше, чем разрешено: обрываем и удаляем файл. */
+        data object TooBig : Download
+    }
+
+    /**
+     * Помещается ли ответ в лимит. Неизвестный размер (Content-Length
+     * не пришёл, -1) не мешает: фактически прочитанные байты всё равно
+     * проверяются по ходу загрузки.
+     */
+    fun fits(length: Long, limit: Long): Boolean = length <= 0L || length <= limit
+
+    /**
+     * Читает поток не больше [limit] байт. null — ответ больше лимита:
+     * читать дальше незачем, соединение закрывается вызывающим.
+     */
+    fun readLimited(input: InputStream, limit: Long): ByteArray? {
+        val out = ByteArrayOutputStream()
+        val buffer = ByteArray(8192)
+        var total = 0L
+        while (true) {
+            val read = input.read(buffer)
+            if (read < 0) break
+            total += read
+            if (total > limit) return null
+            out.write(buffer, 0, read)
+        }
+        return out.toByteArray()
     }
 
     // ── проверка ─────────────────────────────────────────────
@@ -157,6 +196,8 @@ object UpdateManager {
             if (c.responseCode != 200) return Download.Network
 
             val total = c.contentLengthLong
+            if (!fits(total, MAX_APK_BYTES)) return Download.TooBig
+
             val free = dest.parentFile?.usableSpace ?: 0L
             if (total > 0 && free < total + 1_000_000L) {
                 return Download.NoSpace
@@ -173,6 +214,9 @@ object UpdateManager {
                         output.write(buffer, 0, read)
                         digest.update(buffer, 0, read)
                         done += read
+                        // Сервер может не прислать Content-Length и лить
+                        // бесконечно: считаем сами и обрываем.
+                        if (done > MAX_APK_BYTES) throw TooBigException()
                         onProgress(
                             done.coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
                             total.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
@@ -199,11 +243,14 @@ object UpdateManager {
             return Download.Ok
         } catch (t: Throwable) {
             dest.delete()
-            return Download.Network
+            return if (t is TooBigException) Download.TooBig else Download.Network
         } finally {
             connection?.disconnect()
         }
     }
+
+    /** Внутренний сигнал: ответ больше лимита, загрузку надо оборвать. */
+    private class TooBigException : Exception()
 
     // ── установка ────────────────────────────────────────────
 
@@ -330,8 +377,13 @@ object UpdateManager {
 
             if (c.responseCode != 200) {
                 null
+            } else if (!fits(c.contentLengthLong, MAX_JSON_BYTES)) {
+                // Описание релиза больше 256 КБ — уже не описание.
+                null
             } else {
-                c.inputStream.bufferedReader().use { it.readText() }
+                c.inputStream.use { input ->
+                    readLimited(input, MAX_JSON_BYTES)?.let { String(it, Charsets.UTF_8) }
+                }
             }
         } catch (t: Throwable) {
             null
