@@ -53,7 +53,9 @@ data class Settings(
     val edgeInset: Int = 4,
     /** История буфера в копию не входит: только флаг и срок. */
     val clipHistory: Boolean = false,
-    val clipRetention: String = ClipboardHistory.RETENTION_DAY
+    val clipRetention: String = ClipboardHistory.RETENTION_DAY,
+    /** Режим строки над клавишами: инструменты или быстрые вставки. */
+    val panelMode: String = PanelMode.TOOLS
 )
 
 /**
@@ -99,7 +101,8 @@ object Backup {
         dynamicColor = true,
         edgeInset = 4,
         clipHistory = false,
-        clipRetention = ClipboardHistory.RETENTION_DAY
+        clipRetention = ClipboardHistory.RETENTION_DAY,
+        panelMode = PanelMode.TOOLS
     )
 
     private val THEMES = setOf("system", "light", "dark", "amoled")
@@ -160,7 +163,8 @@ object Backup {
         backgroundBlur = prefs.backgroundBlur,
         edgeInset = prefs.edgeInset,
         clipHistory = prefs.clipHistory,
-        clipRetention = prefs.clipRetention
+        clipRetention = prefs.clipRetention,
+        panelMode = prefs.panelMode
     )
 
     fun applyTo(prefs: Prefs, settings: Settings) {
@@ -212,6 +216,7 @@ object Backup {
         prefs.edgeInset = settings.edgeInset
         prefs.clipHistory = settings.clipHistory
         prefs.clipRetention = settings.clipRetention
+        prefs.panelMode = settings.panelMode
     }
 
     fun toJson(settings: Settings): String = JSONObject().apply {
@@ -277,6 +282,7 @@ object Backup {
         put("edgeInset", snap(clamp(settings.edgeInset, 0, 12), 0, 2))
         put("clipHistory", settings.clipHistory)
         put("clipRetention", ClipboardHistory.retention(settings.clipRetention))
+        put("panelMode", PanelMode.parse(settings.panelMode))
     }.toString(2)
 
     /** null — это не наша копия или файл повреждён. */
@@ -372,6 +378,11 @@ object Backup {
                 json.optString("clipRetention"),
                 ClipboardHistory.RETENTIONS,
                 DEFAULT.clipRetention
+            ),
+            panelMode = pick(
+                json.optString("panelMode"),
+                PanelMode.MODES,
+                DEFAULT.panelMode
             )
         )
     }
