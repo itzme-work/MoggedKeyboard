@@ -161,7 +161,7 @@ class PunctuationTest {
         assertTrue("адрес", Punctuation.codeLike("https://example.com/a"))
         assertTrue("почта", Punctuation.codeLike("mail user@mail.ru"))
         assertTrue("сайт", Punctuation.codeLike("www.example.com"))
-        assertTrue("путь", Punctuation.codeLike("cd /storage/emulated/0"))
+        assertTrue("путь", Punctuation.codeLike("cd /home/user/notes"))
         assertTrue("флаг", Punctuation.codeLike("git --help"))
         assertFalse("голое тире", Punctuation.codeLike("слово --"))
         assertTrue("переменная", Punctuation.codeLike("echo \$HOME"))
