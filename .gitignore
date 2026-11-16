@@ -19,7 +19,6 @@ buildlog/
 *.b64
 keystore/
 
-# Токен заливки — только локально
+# Токены и пароли — только локально, мимо репозитория
 *.token
-.mogged-token
-.mogged-user
+*.secret
