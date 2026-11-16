@@ -162,7 +162,9 @@ class ClipboardHistoryTest {
     }
 
     @Test
-    fun jsonSkipsCodesAndTooLongTexts() {
+    fun jsonKeepsSavedCodesButSkipsTooLongTexts() {
+        // Код мог попасть в историю при выключенном переключателе:
+        // чтение файла его не выкидывает.
         val raw = """
             [
               {"text":"111222","time":1,"pinned":false},
@@ -171,7 +173,32 @@ class ClipboardHistoryTest {
             ]
         """.trimIndent()
         val restored = ClipboardHistory.fromJson(raw)
-        assertEquals(1, restored.size)
-        assertEquals("обычный текст", restored.first().text)
+        assertEquals(2, restored.size)
+        assertTrue(restored.any { it.text == "111222" })
+        assertTrue(restored.any { it.text == "обычный текст" })
+    }
+
+    @Test
+    fun oneTimeCodesCanBeAllowed() {
+        // Переключатель «Не запоминать одноразовые коды» выключен.
+        assertTrue(ClipboardHistory.accepts("1234", skipCodes = false))
+        assertTrue(ClipboardHistory.accepts("12345678", skipCodes = false))
+
+        val clips = mutableListOf<ClipEntry>()
+        assertTrue(
+            ClipboardHistory.add(clips, "123456", 1L, skipCodes = false)
+        )
+        assertEquals("123456", clips.first().text)
+
+        // С включённым правилом код по-прежнему не сохраняется.
+        assertFalse(ClipboardHistory.add(clips, "654321", 2L))
+        assertEquals(1, clips.size)
+    }
+
+    @Test
+    fun blankAndLongAreRejectedRegardlessOfCodes() {
+        assertFalse(ClipboardHistory.valid("  "))
+        assertFalse(ClipboardHistory.valid("а".repeat(ClipboardHistory.MAX_LENGTH + 1)))
+        assertTrue(ClipboardHistory.valid("1234"))
     }
 }
