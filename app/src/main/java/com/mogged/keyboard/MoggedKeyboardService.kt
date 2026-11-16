@@ -47,6 +47,7 @@ import android.widget.PopupWindow
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.widget.TooltipCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.google.android.material.color.DynamicColors
@@ -124,7 +125,14 @@ class MoggedKeyboardService : InputMethodService() {
 
     private var panelOn = false
     private var panelActions: List<String> = Panel.ACTIONS
-    private var panelExpanded = true
+
+    /** Режим строки над клавишами и её свёрнутость. */
+    private var panelMode = PanelMode.TOOLS
+    private var panelCollapsed = false
+
+    /** Строка режимов и кнопка слева: меняются на месте, без пересборки. */
+    private var panelRow: LinearLayout? = null
+    private var panelToggle: ImageView? = null
     private var incognitoOn = false
     private var rules = PunctuationRules()
     private var templates: List<Template> = emptyList()
@@ -165,6 +173,9 @@ class MoggedKeyboardService : InputMethodService() {
     private var clipRetention = ClipboardHistory.RETENTION_DAY
     private var clips: MutableList<ClipEntry> = mutableListOf()
     private var clipsLoaded = false
+
+    /** Копия, лежащая в буфере при открытии панели: ждёт кнопки «Сохранить». */
+    private var pendingClip: String? = null
     private var clipEpochSeen = -1
     private var clipWatching = false
     private var inputActive = false
@@ -222,8 +233,11 @@ class MoggedKeyboardService : InputMethodService() {
 
     private val prefListener =
         SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
-            // Проверка обновлений и пройденный онбординг клавиатуру не меняют.
-            if (key != null && key != "check_updates" && key != "onboarded") {
+            // Проверка обновлений, пройденный онбординг и режим строки
+            // клавиатуру не пересобирают: режим меняется на месте.
+            if (key != null && key != "check_updates" && key != "onboarded" &&
+                key != "panel_mode"
+            ) {
                 handler.post { onPrefsChanged() }
             }
         }
@@ -277,6 +291,7 @@ class MoggedKeyboardService : InputMethodService() {
 
         panelOn = prefs.panelOn
         panelActions = prefs.panelActions
+        panelMode = prefs.panelMode
         incognitoOn = prefs.incognito
         rules = PunctuationRules(
             quotes = prefs.smartQuotes,
@@ -1311,8 +1326,9 @@ class MoggedKeyboardService : InputMethodService() {
 
     /**
      * Слушатель буфера работает, пока клавиатура показана и поле не защищено.
-     * Так копии, сделанные без клавиатуры, не теряются: при открытии панели
-     * буфер читается ещё раз ([captureClip]).
+     * Копию, сделанную мимо клавиатуры, он не поймает: при открытии панели
+     * такая копия показывается строкой «Текущий буфер» и сохраняется только
+     * по кнопке.
      */
     private fun syncClipWatch() {
         val wanted = inputActive && clipEnabled && clipViewAllowed()
@@ -1345,38 +1361,55 @@ class MoggedKeyboardService : InputMethodService() {
         if (clipsLoaded) return
         clips = ClipStore.load(this)
         clipsLoaded = true
+        pruneClips()
+    }
+
+    /**
+     * Срок хранения проверяется не только при копировании: старые записи
+     * иначе лежали бы на диске до следующего события, даже если клавиатуру
+     * открывали много раз.
+     */
+    private fun pruneClips() {
+        if (!clipEnabled) return
+        ensureClipsLoaded()
         if (ClipboardHistory.prune(clips, System.currentTimeMillis(), clipRetention)) {
             ClipStore.save(this, clips)
         }
     }
 
     /**
-     * Читает буфер и кладёт текст в историю. Картинки, файлы и чувствительные
-     * клипы (Android 13+) пропускаются; в поля паролей и в инкогнито не пишем.
-     * [stamp] = false — чтение при открытии панели: уже известную запись
-     * не поднимаем и время ей не меняем, иначе список прыгал бы при каждом
-     * открытии.
+     * Читает буфер и кладёт текст в историю.
+     *
+     * Вызывается только слушателем буфера: копию, сделанную мимо клавиатуры,
+     * при открытии панели не сохраняем, а показываем строкой «Текущий буфер»
+     * с кнопкой «Сохранить». Иначе пароль из менеджера паролей (до Android 13
+     * без пометки «секретно») оставался бы в истории надолго.
      */
-    private fun captureClip(stamp: Boolean = true) {
+    private fun captureClip() {
         if (!clipEnabled || !clipViewAllowed()) return
-        val manager = clipboard() ?: return
+        val text = readClipText() ?: return
+
+        ensureClipsLoaded()
+        val now = System.currentTimeMillis()
+        val added = ClipboardHistory.add(clips, text, now)
+        val pruned = ClipboardHistory.prune(clips, now, clipRetention)
+        if (added || pruned) ClipStore.save(this, clips)
+    }
+
+    /**
+     * Текст из системного буфера или null: картинки, файлы, чувствительные
+     * клипы (Android 13+) и одноразовые коды не берём вовсе.
+     */
+    private fun readClipText(): String? {
+        val manager = clipboard() ?: return null
         val clip = try {
             manager.primaryClip
         } catch (t: Throwable) {
             null
-        } ?: return
-        if (clip.itemCount == 0 || clipIsSensitive(clip)) return
-        val text = clip.getItemAt(0)?.text?.toString() ?: return
-
-        ensureClipsLoaded()
-        val now = System.currentTimeMillis()
-        val added = if (!stamp && clips.any { it.text == text }) {
-            false
-        } else {
-            ClipboardHistory.add(clips, text, now)
-        }
-        val pruned = ClipboardHistory.prune(clips, now, clipRetention)
-        if (added || pruned) ClipStore.save(this, clips)
+        } ?: return null
+        if (clip.itemCount == 0 || clipIsSensitive(clip)) return null
+        val text = clip.getItemAt(0)?.text?.toString() ?: return null
+        return if (ClipboardHistory.accepts(text)) text else null
     }
 
     /** Клип помечен приложением как секретный: не записываем и не показываем. */
@@ -1394,6 +1427,7 @@ class MoggedKeyboardService : InputMethodService() {
         }
         clipPopup = null
         clipPopupAnchor = null
+        pendingClip = null
     }
 
     private fun refreshHistory() {
@@ -1410,8 +1444,9 @@ class MoggedKeyboardService : InputMethodService() {
         dismissHistory()
         clipPopupAnchor = anchor
 
-        // Копии, сделанные, пока слушатель не работал, читаем при открытии.
-        if (clipEnabled) captureClip(stamp = false)
+        // Копию, сделанную мимо клавиатуры, не сохраняем сами: показываем
+        // её отдельной строкой, человек решает, нужна ли она в истории.
+        pendingClip = if (clipEnabled && clipViewAllowed()) readClipText() else null
 
         val box = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
@@ -1423,28 +1458,38 @@ class MoggedKeyboardService : InputMethodService() {
             }
         }
 
+        val list = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+
         if (!clipEnabled) {
-            box.addView(historyHint(getString(R.string.clip_history_off)))
+            list.addView(emptyHistory(getString(R.string.clip_history_off)))
         } else {
             ensureClipsLoaded()
             if (ClipboardHistory.prune(clips, System.currentTimeMillis(), clipRetention)) {
                 ClipStore.save(this, clips)
             }
+
+            val current = pendingClip
+            if (current != null && clips.none { it.text == current }) {
+                list.addView(currentClipRow(current))
+            }
+
             if (clips.isEmpty()) {
-                box.addView(historyHint(getString(R.string.clip_history_empty)))
+                if (current == null) {
+                    list.addView(emptyHistory(getString(R.string.clip_history_empty)))
+                }
             } else {
-                val list = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
                 clips.forEachIndexed { index, entry ->
                     list.addView(historyRow(index, entry))
                 }
-                box.addView(
-                    ScrollView(ctx).apply {
-                        isVerticalScrollBarEnabled = false
-                        addView(list)
-                    }
-                )
             }
         }
+
+        box.addView(
+            ScrollView(ctx).apply {
+                isVerticalScrollBarEnabled = false
+                addView(list)
+            }
+        )
 
         val maxWidth = (contentWidth() - dp(8)).coerceIn(dp(200), dp(420))
         // Выше кнопки должно хватить места: на низком экране список короче.
@@ -1477,12 +1522,111 @@ class MoggedKeyboardService : InputMethodService() {
         clipPopup = popup
     }
 
+    /** Пустое состояние: значок листа и пояснение. */
+    private fun emptyHistory(text: String): View {
+        val box = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(12), dp(16), dp(12), dp(16))
+        }
+        box.addView(
+            ImageView(ctx).apply {
+                setImageResource(R.drawable.ic_history_empty)
+                imageTintList = ColorStateList.valueOf(
+                    Palette.readable(cOnKeyVariant, cSurfaceContainerHigh, contrastTarget)
+                )
+                contentDescription = null
+            },
+            LinearLayout.LayoutParams(dp(40), dp(40))
+        )
+        box.addView(
+            historyHint(text),
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+        return box
+    }
+
     private fun historyHint(text: String): TextView = TextView(ctx).apply {
         this.text = text
         textSize = specialSize
         setTextColor(Palette.readable(cOnKeyVariant, cSurfaceContainerHigh, contrastTarget))
         includeFontPadding = false
         setPadding(dp(10), dp(8), dp(10), dp(8))
+    }
+
+    /**
+     * «Текущий буфер»: то, что лежит в буфере сейчас, но ещё не в истории.
+     * Сохраняется только по нажатию — так пароль из менеджера паролей
+     * не окажется в истории сам по себе.
+     */
+    private fun currentClipRow(text: String): View {
+        val row = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(10), dp(7), dp(10), dp(7))
+            background = tonalBackground(cSecondaryContainer)
+        }
+
+        row.addView(TextView(ctx).apply {
+            this.text = getString(R.string.clip_current)
+            textSize = hintSize()
+            setTextColor(Palette.readable(cOnKeyVariant, cSecondaryContainer, contrastTarget))
+            includeFontPadding = false
+        })
+
+        row.addView(TextView(ctx).apply {
+            this.text = PanelMode.chipText(text)
+            textSize = specialSize
+            maxLines = 2
+            ellipsize = TextUtils.TruncateAt.END
+            setTextColor(Palette.readable(cOnKey, cSecondaryContainer, contrastTarget))
+            includeFontPadding = false
+        })
+
+        row.setOnClickListener {
+            insertChip(text)
+            dismissHistory()
+        }
+
+        val save = TextView(ctx).apply {
+            this.text = getString(R.string.clip_save)
+            textSize = hintSize()
+            setTextColor(Palette.readable(cOnPrimaryContainer, cPrimaryContainer, contrastTarget))
+            includeFontPadding = false
+            setPadding(dp(12), dp(6), dp(12), dp(6))
+            background = keyBackground(
+                cPrimaryContainer,
+                dp(funcRadiusDp.coerceAtMost(16)).toFloat()
+            )
+            isClickable = true
+            setOnClickListener {
+                ensureClipsLoaded()
+                if (ClipboardHistory.add(clips, text, System.currentTimeMillis())) {
+                    pendingClip = null
+                    ClipStore.save(this@MoggedKeyboardService, clips)
+                    Toast.makeText(
+                        this@MoggedKeyboardService,
+                        R.string.clip_saved,
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+                refreshHistory()
+            }
+        }
+        row.addView(
+            save,
+            LinearLayout.LayoutParams(dp(140), dp(32)).apply { topMargin = dp(6) }
+        )
+        return row
+    }
+
+    /** Тональная подложка строки: закреплённые записи видны сразу. */
+    private fun tonalBackground(color: Int): GradientDrawable = GradientDrawable().apply {
+        shape = GradientDrawable.RECTANGLE
+        cornerRadius = dp(14).toFloat()
+        setColor(color)
     }
 
     @SuppressLint("ClickableViewAccessibility")
@@ -1492,9 +1636,30 @@ class MoggedKeyboardService : InputMethodService() {
             setPadding(dp(10), dp(7), dp(10), dp(7))
             isClickable = true
             isLongClickable = true
+            // Фон есть у каждой строки: иначе подложка «Удалить» была бы
+            // видна под прозрачной строкой. Закреплённые — тональные.
+            background = tonalBackground(
+                if (entry.pinned) cSecondaryContainer else cSurfaceContainerHigh
+            )
         }
 
-        row.addView(TextView(ctx).apply {
+        val top = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        if (entry.pinned) {
+            top.addView(
+                ImageView(ctx).apply {
+                    setImageResource(R.drawable.ic_pin)
+                    imageTintList = ColorStateList.valueOf(
+                        Palette.readable(cPrimary, cSecondaryContainer, contrastTarget)
+                    )
+                    contentDescription = getString(R.string.clip_pinned_icon)
+                },
+                LinearLayout.LayoutParams(dp(16), dp(16)).apply { marginEnd = dp(4) }
+            )
+        }
+        top.addView(TextView(ctx).apply {
             text = entry.text.replace('\n', ' ')
             textSize = specialSize
             maxLines = 2
@@ -1502,14 +1667,10 @@ class MoggedKeyboardService : InputMethodService() {
             setTextColor(Palette.readable(cOnKey, cSurfaceContainerHigh, contrastTarget))
             includeFontPadding = false
         })
+        row.addView(top)
 
         row.addView(TextView(ctx).apply {
-            val time = ClipTime.label(ctx, entry.time)
-            text = if (entry.pinned) {
-                getString(R.string.clip_meta_pinned, time)
-            } else {
-                time
-            }
+            text = ClipTime.label(ctx, entry.time)
             textSize = hintSize()
             setTextColor(
                 Palette.readable(cOnKeyVariant, cSurfaceContainerHigh, contrastTarget)
@@ -1532,86 +1693,341 @@ class MoggedKeyboardService : InputMethodService() {
             true
         }
 
+        // Подложка «Удалить»: строка уезжает в сторону, под ней видно действие.
+        val frame = FrameLayout(ctx)
+        frame.addView(
+            TextView(ctx).apply {
+                text = getString(R.string.clip_delete)
+                textSize = hintSize()
+                gravity = Gravity.CENTER_VERTICAL or Gravity.END
+                setPadding(0, 0, dp(14), 0)
+                setTextColor(
+                    Palette.readable(cOnKeyVariant, cSurfaceContainerHigh, contrastTarget)
+                )
+                includeFontPadding = false
+            },
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        )
+        frame.addView(
+            row,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+
         // Свайп в сторону — удаление. Вертикальная прокрутка списка остаётся.
         var downX = 0f
         var downY = 0f
+        var dragX = 0f
         row.setOnTouchListener { view, event ->
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     downX = event.rawX
                     downY = event.rawY
+                    dragX = 0f
                     false
                 }
-                MotionEvent.ACTION_UP -> {
+                MotionEvent.ACTION_MOVE -> {
                     val dx = event.rawX - downX
                     val dy = event.rawY - downY
-                    if (abs(dx) > dp(48).toFloat() && abs(dx) > abs(dy)) {
-                        ClipboardHistory.remove(clips, index)
-                        ClipStore.save(this, clips)
-                        view.animate().alpha(0f).setDuration(90L)
-                            .withEndAction { refreshHistory() }
-                            .start()
+                    if (abs(dx) > abs(dy) && abs(dx) > dp(8)) {
+                        dragX = dx
+                        view.translationX = dx
                         true
                     } else {
                         false
                     }
                 }
+                MotionEvent.ACTION_UP -> {
+                    if (abs(dragX) > dp(48)) {
+                        view.animate().translationX(dragX * 2f).alpha(0f).setDuration(90L)
+                            .withEndAction {
+                                ClipboardHistory.remove(clips, index)
+                                ClipStore.save(this, clips)
+                                refreshHistory()
+                            }
+                            .start()
+                        true
+                    } else {
+                        view.animate().translationX(0f).setDuration(120L).start()
+                        false
+                    }
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    view.animate().translationX(0f).setDuration(120L).start()
+                    false
+                }
                 else -> false
             }
         }
-        return row
+        return frame
     }
 
     // ── панель инструментов ──────────────────────────────────
     private fun isIncognitoNow(): Boolean = incognitoOn || isSensitive
 
     /**
-     * Панель над клавишами: набор и порядок кнопок задаются в приложении.
-     * Шеврон справа сворачивает её до тонкой полоски.
+     * Строка над клавишами. Слева — квадратная кнопка режима: нажатие
+     * переключает «Инструменты» и «Быстрые вставки», долгое — сворачивает
+     * строку до одной кнопки и разворачивает обратно. Состав инструментов
+     * задаётся в настройках.
      */
     private fun panelView(): View {
         val bar = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(2), dp(2), dp(2), dp(2))
         }
 
-        if (panelExpanded) {
-            val scroll = HorizontalScrollView(ctx).apply {
-                isHorizontalScrollBarEnabled = false
-                layoutParams = LinearLayout.LayoutParams(
-                    0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f
+        bar.addView(panelModeButton())
+        val row = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        panelRow = row
+        bar.addView(
+            row,
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        )
+        fillPanelRow()
+        return bar
+    }
+
+    /**
+     * Кнопка режима: скруглённый квадрат 40×36 dp в ячейке 48 dp, чтобы
+     * попадать по ней пальцем; цвет primaryContainer, иконка — сетка из
+     * четырёх точек, в «Быстрых вставках» — стрелка назад.
+     */
+    private fun panelModeButton(): View {
+        val box = FrameLayout(ctx)
+        val icon = ImageView(ctx).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            background = keyBackground(
+                cPrimaryContainer,
+                dp(funcRadiusDp.coerceAtMost(16)).toFloat()
+            )
+            imageTintList = ColorStateList.valueOf(
+                Palette.readable(cOnPrimaryContainer, cPrimaryContainer, contrastTarget)
+            )
+            setPadding(dp(9), dp(7), dp(9), dp(7))
+            setImageResource(panelModeIcon(panelMode))
+        }
+        box.addView(
+            icon,
+            FrameLayout.LayoutParams(dp(40), dp(36), Gravity.CENTER)
+        )
+        box.isClickable = true
+        box.isLongClickable = true
+        box.layoutParams = LinearLayout.LayoutParams(dp(48), dp(48))
+        box.setOnClickListener { panelEvent(PanelMode.Event.TAP) }
+        box.setOnLongClickListener {
+            panelEvent(PanelMode.Event.LONG_PRESS)
+            true
+        }
+        panelToggle = icon
+        updatePanelModeButton()
+        return box
+    }
+
+    private fun panelModeIcon(mode: String): Int =
+        if (PanelMode.parse(mode) == PanelMode.INSERTS) {
+            R.drawable.ic_panel_back
+        } else {
+            R.drawable.ic_panel_grid
+        }
+
+    /** Нажатие или долгое нажатие на кнопку режима. */
+    private fun panelEvent(event: PanelMode.Event) {
+        tap()
+        applyPanelState(PanelMode.next(PanelMode.State(panelMode, panelCollapsed), event))
+    }
+
+    /**
+     * Строка меняется на месте: setInputView() здесь вызвал бы мигание всей
+     * клавиатуры. Режим сохраняется в настройках, свёрнутость — нет.
+     */
+    private fun applyPanelState(state: PanelMode.State) {
+        val modeChanged = state.mode != panelMode
+        panelMode = state.mode
+        panelCollapsed = state.collapsed
+        if (modeChanged) prefs.panelMode = panelMode
+        fillPanelRow()
+        updatePanelModeButton()
+    }
+
+    private fun updatePanelModeButton() {
+        val icon = panelToggle ?: return
+        val title = getString(PanelMode.titleRes(panelMode))
+        icon.contentDescription = getString(R.string.panel_mode_hint, title)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            icon.stateDescription = getString(R.string.panel_mode_state, title)
+        }
+        val res = panelModeIcon(panelMode)
+        if (!animationsOn) {
+            icon.setImageResource(res)
+            return
+        }
+        // Морфинг значка: 60 мс в прозрачность и обратно, всего 120 мс.
+        icon.animate().cancel()
+        icon.animate().alpha(0f).setDuration(60).withEndAction {
+            icon.setImageResource(res)
+            icon.animate().alpha(1f).setDuration(60).start()
+        }.start()
+    }
+
+    /** Состав строки: инструменты или до пяти чипов быстрых вставок. */
+    private fun fillPanelRow() {
+        val row = panelRow ?: return
+        row.removeAllViews()
+        if (panelCollapsed) return
+        when (panelMode) {
+            PanelMode.INSERTS -> fillInsertChips(row)
+            else -> fillTools(row)
+        }
+    }
+
+    private fun fillTools(row: LinearLayout) {
+        val scroll = HorizontalScrollView(ctx).apply {
+            isHorizontalScrollBarEnabled = false
+        }
+        val inner = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        panelActions
+            .filter { it != Panel.UNDO && it != Panel.REDO || !undoUnsupported }
+            .filter { it != Panel.HISTORY || builtClipVisible }
+            .forEach { action -> inner.addView(panelButton(action)) }
+        scroll.addView(inner)
+        row.addView(
+            scroll,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+    }
+
+    /**
+     * «Быстрые вставки»: последние записи истории, если она включена и поле
+     * не защищено; иначе шаблоны; иначе подсказка с переходом в настройки.
+     * В защищённом поле ни история, ни шаблоны не показываются.
+     */
+    private fun fillInsertChips(row: LinearLayout) {
+        val scroll = HorizontalScrollView(ctx).apply {
+            isHorizontalScrollBarEnabled = false
+        }
+        val inner = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        if (!clipViewAllowed()) {
+            inner.addView(panelChip(getString(R.string.panel_inserts_hidden), null))
+            scroll.addView(inner)
+            row.addView(scroll)
+            return
+        }
+
+        val history = if (clipEnabled) {
+            ensureClipsLoaded()
+            pruneClips()
+            clips.take(PanelMode.MAX_CHIPS)
+        } else {
+            emptyList()
+        }
+
+        if (history.isNotEmpty()) {
+            history.forEach { entry ->
+                inner.addView(
+                    panelChip(
+                        text = entry.text,
+                        description = entry.text,
+                        onClick = { insertChip(entry.text) },
+                        onLongClick = { pinChip(entry) }
+                    )
                 )
             }
-            val row = LinearLayout(ctx).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
+        } else if (templates.isNotEmpty()) {
+            templates.take(PanelMode.MAX_CHIPS).forEach { template ->
+                inner.addView(
+                    panelChip(
+                        text = template.text,
+                        description = template.text,
+                        onClick = { insertChip(template.text) }
+                    )
+                )
             }
-            panelActions
-                .filter { it != Panel.UNDO && it != Panel.REDO || !undoUnsupported }
-                .filter { it != Panel.HISTORY || builtClipVisible }
-                .forEach { action -> row.addView(panelButton(action)) }
-            scroll.addView(row)
-            bar.addView(scroll)
         } else {
-            bar.addView(
-                View(ctx),
-                LinearLayout.LayoutParams(0, dp(2), 1f)
+            val hint = getString(R.string.panel_inserts_empty)
+            inner.addView(
+                panelChip(text = hint, description = hint)
+            )
+            inner.addView(
+                panelChip(
+                    text = getString(R.string.panel_inserts_hint_chip),
+                    description = getString(R.string.panel_inserts_settings),
+                    onClick = { openSettings() }
+                )
             )
         }
 
-        // Шеврон — векторная иконка в такой же тональной кнопке, как остальные.
-        bar.addView(
-            panelIconButton(
-                if (panelExpanded) R.drawable.ic_chevron_down else R.drawable.ic_chevron_up,
-                getString(if (panelExpanded) R.string.panel_hide else R.string.panel_show)
-            ) {
-                panelExpanded = !panelExpanded
-                setInputView(buildInputView())
-            },
-            LinearLayout.LayoutParams(dp(36), dp(32)).apply { marginStart = dp(4) }
+        scroll.addView(inner)
+        row.addView(scroll)
+        return
+    }
+
+    private fun insertChip(text: String) {
+        tap()
+        currentInputConnection?.commitText(text, 1)
+    }
+
+    private fun pinChip(entry: ClipEntry) {
+        val index = clips.indexOf(entry)
+        if (index < 0) return
+        if (ClipboardHistory.togglePin(clips, index)) {
+            ClipStore.save(this, clips)
+            tap()
+            fillPanelRow()
+        } else {
+            Toast.makeText(this, R.string.clip_pin_limit, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /**
+     * Чип строки: одна строка текста до 24 символов с многоточием.
+     * [onClick] = null — чип только показывает текст.
+     */
+    private fun panelChip(
+        text: String,
+        description: String?,
+        onClick: (() -> Unit)? = null,
+        onLongClick: (() -> Unit)? = null
+    ): TextView = TextView(ctx).apply {
+        this.text = PanelMode.chipText(text)
+        textSize = specialSize
+        maxLines = 1
+        ellipsize = TextUtils.TruncateAt.END
+        maxWidth = dp(220)
+        setTextColor(Palette.readable(cOnSecondaryContainer, cSecondaryContainer, contrastTarget))
+        includeFontPadding = false
+        setPadding(dp(12), dp(6), dp(12), dp(6))
+        background = keyBackground(
+            cSecondaryContainer,
+            dp(funcRadiusDp.coerceAtMost(16)).toFloat()
         )
-        return bar
+        layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            dp(32)
+        ).apply { marginStart = dp(4) }
+        isClickable = onClick != null
+        isLongClickable = onLongClick != null
+        if (description != null) contentDescription = description
+        onClick?.let { action -> setOnClickListener { action() } }
+        onLongClick?.let { action -> setOnLongClickListener { action(); true } }
     }
 
     private fun panelButton(action: String): ImageView {
@@ -1647,6 +2063,8 @@ class MoggedKeyboardService : InputMethodService() {
             setPadding(dp(6), dp(4), dp(6), dp(4))
             isClickable = true
             contentDescription = description
+            // Долгое нажатие показывает подпись кнопки.
+            TooltipCompat.setTooltipText(this, description)
             setOnClickListener { onClick(this) }
         }
 
@@ -2307,6 +2725,7 @@ class MoggedKeyboardService : InputMethodService() {
         readEditorInfo(info)
         inputActive = true
         syncClipWatch()
+        pruneClips()
 
         val keep = restarting || keepStateOnce
         keepStateOnce = false
@@ -2423,5 +2842,5 @@ class MoggedKeyboardService : InputMethodService() {
     private fun sidePadding(): Int = dp(prefs.edgeInset)
 
     /** Полоска панели инструментов добавляется к высоте клавиатуры. */
-    private fun panelHeight(): Int = if (panelOn) dp(38) else 0
+    private fun panelHeight(): Int = if (panelOn) dp(48) else 0
 }
