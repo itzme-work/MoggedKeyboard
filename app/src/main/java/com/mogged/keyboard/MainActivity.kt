@@ -1,6 +1,7 @@
 package com.mogged.keyboard
 
 import android.content.ClipData
+import android.content.ClipDescription
 import android.content.ClipboardManager
 import android.content.Intent
 import android.content.res.ColorStateList
@@ -9,6 +10,7 @@ import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.PersistableBundle
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -45,6 +47,8 @@ import androidx.transition.TransitionManager
 import com.google.android.material.appbar.AppBarLayout
 import com.google.android.material.appbar.CollapsingToolbarLayout
 import com.google.android.material.appbar.MaterialToolbar
+import com.google.android.material.bottomnavigation.BottomNavigationView
+import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.button.MaterialButtonToggleGroup
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.color.DynamicColors
@@ -53,7 +57,6 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.navigation.NavigationBarView
 import com.google.android.material.navigationrail.NavigationRailView
-import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.slider.Slider
 import com.google.android.material.transition.MaterialSharedAxis
 import java.io.File
@@ -219,7 +222,21 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         refreshStatus()
         refreshOnboarding()
+        // Срок хранения проверяется и здесь: старые записи не должны
+        // лежать на диске, пока не случится новое копирование.
+        pruneClips()
+        refreshClipCard()
         if (prefs.checkUpdates) checkUpdate(quiet = true)
+    }
+
+    /** Удаляет из истории записи старше выбранного срока. */
+    private fun pruneClips() {
+        val list = ClipStore.load(this)
+        if (list.isEmpty()) return
+        if (ClipboardHistory.prune(list, System.currentTimeMillis(), prefs.clipRetention)) {
+            ClipStore.save(this, list)
+            prefs.clipEpoch += 1
+        }
     }
 
     override fun onStart() {
@@ -477,7 +494,22 @@ class MainActivity : AppCompatActivity() {
         bindSwitch(R.id.swSmartEllipsis, prefs.smartEllipsis) { prefs.smartEllipsis = it }
         bindSwitch(R.id.swSmartSpace, prefs.smartSpace) { prefs.smartSpace = it }
         bindSwitch(R.id.swIncognito, prefs.incognito) { prefs.incognito = it }
-        bindSwitch(R.id.swClip, prefs.clipHistory) { prefs.clipHistory = it }
+
+        // История буфера: включение впервые объясняет, что сохраняется,
+        // выключение предлагает удалить уже сохранённое.
+        bindSwitch(R.id.swClip, prefs.clipHistory) { on ->
+            if (on) {
+                prefs.clipHistory = true
+                if (!prefs.clipHintShown) {
+                    prefs.clipHintShown = true
+                    showClipFirstHint()
+                }
+            } else {
+                askAboutSavedClips()
+            }
+            refreshClipCard()
+        }
+        refreshClipCard()
 
         val clipGroup = findViewById<MaterialButtonToggleGroup>(R.id.clipRetentionGroup)
         clipGroup.check(
@@ -1211,10 +1243,53 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ── история буфера ───────────────────────────────────────
+    /** Счётчик в карточке настроек: «Записей: N из 30». */
+    private fun refreshClipCard() {
+        val count = findViewById<TextView>(R.id.clipCount) ?: return
+        val list = ClipStore.load(this)
+        count.text = getString(R.string.clip_count, list.size, ClipboardHistory.MAX)
+    }
+
+    /** Первое включение: сразу видно, что именно попадёт в историю. */
+    private fun showClipFirstHint() {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.clip_first_hint_title)
+            .setMessage(R.string.clip_first_hint_text)
+            .setPositiveButton(R.string.clip_first_hint_ok, null)
+            .show()
+    }
+
+    /**
+     * Выключили историю: сохранённое можно удалить сразу или оставить до
+     * конца срока. Запись новых копий прекращается в любом случае.
+     */
+    private fun askAboutSavedClips() {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.clip_turn_off_title)
+            .setMessage(R.string.clip_turn_off_text)
+            .setNegativeButton(R.string.clip_turn_off_keep) { _, _ ->
+                prefs.clipHistory = false
+                refreshClipCard()
+            }
+            .setPositiveButton(R.string.clip_turn_off_delete) { _, _ ->
+                prefs.clipHistory = false
+                ClipStore.clear(this)
+                prefs.clipEpoch += 1
+                refreshClipCard()
+                toast(R.string.clip_clear_done)
+            }
+            .setOnCancelListener {
+                prefs.clipHistory = false
+                refreshClipCard()
+            }
+            .show()
+    }
+
     /**
      * Просмотр и поиск истории из настроек: панель клавиатуры показывает
-     * быстрый список, а искать удобнее здесь. Тап копирует запись обратно
-     * в буфер, долгое нажатие закрепляет или удаляет.
+     * быстрый список, а искать удобнее здесь. Нижняя панель вместо диалога —
+     * список длиннее. Тап копирует запись обратно в буфер, долгое нажатие
+     * закрепляет или удаляет.
      */
     private fun showClipHistory() {
         val list = ClipStore.load(this)
@@ -1222,17 +1297,36 @@ class MainActivity : AppCompatActivity() {
             saveClips(list)
         }
 
-        val box = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(4), dp(20), 0)
-        }
-
         val muted = MaterialColors.getColor(
             this, com.google.android.material.R.attr.colorOnSurfaceVariant, 0
         )
+        val onSurface = MaterialColors.getColor(
+            this, com.google.android.material.R.attr.colorOnSurface, 0
+        )
+
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), dp(16))
+        }
+
+        box.addView(TextView(this).apply {
+            text = getString(R.string.panel_history_title)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 20f)
+            setTextColor(onSurface)
+            setPadding(0, 0, 0, dp(2))
+        })
+        val countLabel = TextView(this).apply {
+            text = getString(R.string.clip_count, list.size, ClipboardHistory.MAX)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTextColor(muted)
+            setPadding(0, 0, 0, dp(6))
+        }
+        box.addView(countLabel)
+
         if (!prefs.clipHistory) {
             box.addView(TextView(this).apply {
                 text = getString(R.string.clip_history_off)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
                 setTextColor(muted)
                 setPadding(0, dp(4), 0, dp(8))
             })
@@ -1247,17 +1341,17 @@ class MainActivity : AppCompatActivity() {
         box.addView(search)
 
         val listBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val scroll = ScrollView(this).apply { addView(listBox) }
         box.addView(
-            scroll,
+            ScrollView(this).apply { addView(listBox) },
             LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                dp(320)
+                dp(360)
             )
         )
 
         fun render() {
             listBox.removeAllViews()
+            countLabel.text = getString(R.string.clip_count, list.size, ClipboardHistory.MAX)
             val found = ClipboardHistory.search(list, search.text.toString())
             if (found.isEmpty()) {
                 listBox.addView(TextView(this).apply {
@@ -1270,18 +1364,19 @@ class MainActivity : AppCompatActivity() {
                 return
             }
             found.forEach { entry ->
-                listBox.addView(clipRow(list, entry) { render() })
+                listBox.addView(clipRow(list, entry) {
+                    render()
+                    refreshClipCard()
+                })
             }
         }
 
         search.doAfterTextChanged { render() }
         render()
 
-        MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.panel_history_title)
-            .setView(box)
-            .setPositiveButton(R.string.clip_close, null)
-            .show()
+        val sheet = BottomSheetDialog(this)
+        sheet.setContentView(box)
+        sheet.show()
     }
 
     private fun clipRow(
@@ -1295,32 +1390,67 @@ class MainActivity : AppCompatActivity() {
         val muted = MaterialColors.getColor(
             this, com.google.android.material.R.attr.colorOnSurfaceVariant, 0
         )
+        val tonal = MaterialColors.getColor(
+            this, com.google.android.material.R.attr.colorSecondaryContainer, 0
+        )
 
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(0, dp(8), 0, dp(8))
+            setPadding(dp(10), dp(8), dp(10), dp(8))
             isClickable = true
             isLongClickable = true
+            if (entry.pinned) {
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dp(14).toFloat()
+                    setColor(tonal)
+                }
+            }
         }
 
-        row.addView(TextView(this).apply {
+        // Закреплённые строки помечены значком, а не словом «закреплено».
+        val top = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        if (entry.pinned) {
+            top.addView(
+                ImageView(this).apply {
+                    setImageResource(R.drawable.ic_pin)
+                    setColorFilter(onSurface)
+                    contentDescription = getString(R.string.clip_pinned_icon)
+                },
+                LinearLayout.LayoutParams(dp(14), dp(14)).apply { marginEnd = dp(4) }
+            )
+        }
+        top.addView(TextView(this).apply {
             text = entry.text.replace('\n', ' ')
             maxLines = 2
             ellipsize = TextUtils.TruncateAt.END
             setTextColor(onSurface)
         })
+        row.addView(top)
+
         row.addView(TextView(this).apply {
-            val time = ClipTime.label(this@MainActivity, entry.time)
-            text = if (entry.pinned) getString(R.string.clip_meta_pinned, time) else time
+            text = ClipTime.label(this@MainActivity, entry.time)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
             setTextColor(muted)
         })
 
         row.setOnClickListener {
             val manager = getSystemService(ClipboardManager::class.java) ?: return@setOnClickListener
-            manager.setPrimaryClip(
-                ClipData.newPlainText(getString(R.string.clip_title), entry.text)
-            )
+            val clip = ClipData.newPlainText(getString(R.string.clip_title), entry.text)
+            // Android 13 и новее: помечаем копию секретной, чтобы её
+            // не показывали подсказки других клавиатур. setExtras есть
+            // с Android 7, сама пометка действует с 13-й версии.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                clip.description.setExtras(
+                    PersistableBundle().apply {
+                        putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
+                    }
+                )
+            }
+            manager.setPrimaryClip(clip)
             toast(R.string.clip_copied)
         }
 
@@ -1612,6 +1742,7 @@ class MainActivity : AppCompatActivity() {
         prefs.incognito = incognito
         prefs.clipHistory = clipHistory
         prefs.clipRetention = clipRetention
+        prefs.panelMode = panelMode
     }
 
     private fun resetFeel() = with(Backup.DEFAULT) {
@@ -1634,7 +1765,20 @@ class MainActivity : AppCompatActivity() {
 
     private fun bindBackup() {
         findViewById<Button>(R.id.btnExport).setOnClickListener {
-            exportLauncher.launch("mogged-settings.json")
+            // Шаблоны и настройки в копии лежат открытым текстом — говорим
+            // об этом до сохранения, а не после.
+            if (prefs.templates.isEmpty()) {
+                exportLauncher.launch("mogged-settings.json")
+            } else {
+                MaterialAlertDialogBuilder(this)
+                    .setTitle(R.string.backup_templates_title)
+                    .setMessage(R.string.backup_templates_text)
+                    .setNegativeButton(R.string.reset_cancel, null)
+                    .setPositiveButton(R.string.backup_templates_ok) { _, _ ->
+                        exportLauncher.launch("mogged-settings.json")
+                    }
+                    .show()
+            }
         }
         findViewById<Button>(R.id.btnImport).setOnClickListener {
             importLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
@@ -1903,7 +2047,12 @@ class MainActivity : AppCompatActivity() {
 
                 updateStatus.text = when (result) {
                     is UpdateManager.Download.Ok -> {
-                        if (UpdateManager.install(this, target)) {
+                        // Подпись скачанного файла должна совпасть с подписью
+                        // установленного приложения: иначе установщик не нужен.
+                        if (!UpdateManager.signatureMatches(this, target)) {
+                            target.delete()
+                            getString(R.string.update_signature_bad)
+                        } else if (UpdateManager.install(this, target)) {
                             getString(R.string.update_ready)
                         } else {
                             getString(R.string.update_install_failed)
