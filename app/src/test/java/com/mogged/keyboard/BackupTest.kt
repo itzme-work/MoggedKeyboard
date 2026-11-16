@@ -382,4 +382,23 @@ class BackupTest {
             Backup.parse(unknown)!!.clipRetention
         )
     }
+
+    @Test
+    fun panelModeIsBackedUpAndResetToTools() {
+        val mode = Backup.DEFAULT.copy(panelMode = PanelMode.INSERTS)
+        val json = Backup.toJson(mode)
+        assertTrue(json.contains("\"panelMode\": \"inserts\""))
+        assertEquals(PanelMode.INSERTS, Backup.parse(json)!!.panelMode)
+
+        // Неизвестный режим из чужой копии не ломает строку над клавишами.
+        val broken = """
+            {
+              "app": "mogged-keyboard",
+              "schema": 1,
+              "panelMode": "телепорт"
+            }
+        """.trimIndent()
+        assertEquals(PanelMode.TOOLS, Backup.parse(broken)!!.panelMode)
+        assertEquals(PanelMode.TOOLS, Backup.DEFAULT.panelMode)
+    }
 }
