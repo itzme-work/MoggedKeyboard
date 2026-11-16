@@ -1391,7 +1391,7 @@ class MoggedKeyboardService : InputMethodService() {
 
         ensureClipsLoaded()
         val now = System.currentTimeMillis()
-        val added = ClipboardHistory.add(clips, text, now)
+        val added = ClipboardHistory.add(clips, text, now, prefs.clipSkipCodes)
         val pruned = ClipboardHistory.prune(clips, now, clipRetention)
         if (added || pruned) ClipStore.save(this, clips)
     }
@@ -1409,7 +1409,7 @@ class MoggedKeyboardService : InputMethodService() {
         } ?: return null
         if (clip.itemCount == 0 || clipIsSensitive(clip)) return null
         val text = clip.getItemAt(0)?.text?.toString() ?: return null
-        return if (ClipboardHistory.accepts(text)) text else null
+        return if (ClipboardHistory.accepts(text, prefs.clipSkipCodes)) text else null
     }
 
     /** Клип помечен приложением как секретный: не записываем и не показываем. */
@@ -1603,7 +1603,13 @@ class MoggedKeyboardService : InputMethodService() {
             isClickable = true
             setOnClickListener {
                 ensureClipsLoaded()
-                if (ClipboardHistory.add(clips, text, System.currentTimeMillis())) {
+                if (ClipboardHistory.add(
+                        clips,
+                        text,
+                        System.currentTimeMillis(),
+                        prefs.clipSkipCodes
+                    )
+                ) {
                     pendingClip = null
                     ClipStore.save(this@MoggedKeyboardService, clips)
                     Toast.makeText(
