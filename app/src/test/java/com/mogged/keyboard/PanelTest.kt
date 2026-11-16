@@ -72,4 +72,33 @@ class PanelTest {
         assertEquals(Panel.iconRes(Panel.SETTINGS), Panel.iconRes("teleport"))
         assertEquals(Panel.titleRes(Panel.SETTINGS), Panel.titleRes("teleport"))
     }
+
+    @Test
+    fun historyIsAddedAfterPasteOnce() {
+        val old = listOf(Panel.ALL, Panel.COPY, Panel.CUT, Panel.PASTE, Panel.SETTINGS)
+        val migrated = Panel.migrated(old)
+        assertEquals(
+            listOf(Panel.ALL, Panel.COPY, Panel.CUT, Panel.PASTE, Panel.HISTORY, Panel.SETTINGS),
+            migrated
+        )
+        // Второй раз ничего не меняется: кнопка уже есть.
+        assertEquals(migrated, Panel.migrated(migrated))
+    }
+
+    @Test
+    fun historyIsAppendedWhenPasteIsMissing() {
+        val migrated = Panel.migrated(listOf(Panel.COPY, Panel.SETTINGS))
+        assertEquals(listOf(Panel.COPY, Panel.SETTINGS, Panel.HISTORY), migrated)
+    }
+
+    @Test
+    fun migrationDoesNotTouchCustomOrder() {
+        // Свой порядок кнопок миграция сохраняет: «История» встаёт после
+        // «Вставить», остальные остаются на своих местах.
+        val custom = listOf(Panel.SETTINGS, Panel.PASTE, Panel.COPY)
+        assertEquals(
+            listOf(Panel.SETTINGS, Panel.PASTE, Panel.HISTORY, Panel.COPY),
+            Panel.migrated(custom)
+        )
+    }
 }
