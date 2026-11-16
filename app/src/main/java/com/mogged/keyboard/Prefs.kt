@@ -6,6 +6,11 @@ import android.content.SharedPreferences
 /** Настройки клавиатуры, хранятся локально. */
 class Prefs(context: Context) {
 
+    private companion object {
+        /** Служебный флаг: кнопка «История» в панели уже добавлена. */
+        const val PANEL_MIGRATED = "panel_actions_v2"
+    }
+
     val store: SharedPreferences =
         context.getSharedPreferences("mogged", Context.MODE_PRIVATE)
 
@@ -211,29 +216,36 @@ class Prefs(context: Context) {
 
     /** Кнопки панели по порядку. */
     var panelActions: List<String>
-        get() {
-            val list = Panel.parse(store.getString("panel_actions", Panel.DEFAULT))
-            // 0.12.0: у старых настроек в панели ещё нет истории. Добавляем
-            // её один раз после «Вставить», чтобы кнопка появилась после
-            // обновления; дальше человек сам решает, оставлять ли её.
-            if (store.getBoolean("panel_actions_v2", false)) return list
-            val migrated = if (Panel.HISTORY !in list) {
-                val at = list.indexOf(Panel.PASTE)
-                if (at >= 0) {
-                    list.toMutableList().apply { add(at + 1, Panel.HISTORY) }
-                } else {
-                    list + Panel.HISTORY
-                }
-            } else {
-                list
-            }
-            store.edit()
-                .putString("panel_actions", Panel.format(migrated))
-                .putBoolean("panel_actions_v2", true)
-                .apply()
-            return migrated
-        }
+        get() = Panel.parse(store.getString("panel_actions", Panel.DEFAULT))
         set(value) = store.edit().putString("panel_actions", Panel.format(value)).apply()
+
+    /**
+     * Режим строки над клавишами: tools («Инструменты») или inserts
+     * («Быстрые вставки»). Хранится отдельно от [panelActions]: набор кнопок
+     * в режиме инструментов не меняется.
+     */
+    var panelMode: String
+        get() = PanelMode.parse(store.getString("panel_mode", PanelMode.TOOLS))
+        set(value) = store.edit().putString("panel_mode", PanelMode.parse(value)).apply()
+
+    /** Пояснение «что сохраняется» уже показано при первом включении истории. */
+    var clipHintShown: Boolean
+        get() = store.getBoolean("clip_hint_shown", false)
+        set(value) = store.edit().putBoolean("clip_hint_shown", value).apply()
+
+    /**
+     * Разовая правка настроек: кнопка «История» в старых панелях.
+     * Геттер [panelActions] только читает, поэтому миграция живёт здесь
+     * и вызывается из [MoggedApp.onCreate] — один раз за установку.
+     */
+    fun migrate() {
+        if (store.getBoolean(PANEL_MIGRATED, false)) return
+        val migrated = Panel.migrated(Panel.parse(store.getString("panel_actions", Panel.DEFAULT)))
+        store.edit()
+            .putString("panel_actions", Panel.format(migrated))
+            .putBoolean(PANEL_MIGRATED, true)
+            .apply()
+    }
 
     /** Шаблоны-сокращения; в настройках лежат строкой JSON. */
     var templates: List<Template>
