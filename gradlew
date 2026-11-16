@@ -31,8 +31,7 @@ if [ ! -x "$GRADLE" ]; then
   OK=0
   for URL in \
     "https://services.gradle.org/distributions/gradle-$VER-bin.zip" \
-    "https://mirrors.cloud.tencent.com/gradle/gradle-$VER-bin.zip" \
-    "https://repo.huaweicloud.com/gradle/gradle-$VER-bin.zip"
+    "https://downloads.gradle.org/distributions/gradle-$VER-bin.zip"
   do
     if curl -fsSL --retry 3 --retry-all-errors --retry-delay 5 -o "$ZIP" "$URL"; then
       OK=1
