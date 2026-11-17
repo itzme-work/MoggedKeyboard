@@ -67,7 +67,7 @@ class MoggedKeyboardService : InputMethodService() {
     private var root: LinearLayout? = null
     private var rowsBox: LinearLayout? = null
     /** Панель над клавишами: своя полоса во всю ширину окна. */
-    private var panelStrip: LinearLayout? = null
+    private var panelStrip: View? = null
     /** Системный отступ снизу: жесты, навигация, вырез. */
     private var systemBottom = 0
     private var lastWidth = 0
