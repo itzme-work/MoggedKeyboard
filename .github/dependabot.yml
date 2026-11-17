@@ -1,8 +1,11 @@
 version: 2
 
 # Действия закреплены по SHA: тег может переехать на другой код, SHA — нет.
-# Dependabot раз в неделю присылает pull request с новой версией и свежим SHA,
-# а «Проверки» на нём показывают, что обновление ничего не сломало.
+# Подпись после SHA — точный тег официального репозитория, по которому SHA
+# проверен (checkout v4.4.0, setup-java v4.9.1, upload-artifact v4.6.2,
+# download-artifact v4.3.0). Dependabot раз в неделю присылает pull request
+# с новой версией и свежим SHA, а «Проверки» на нём показывают, что
+# обновление ничего не сломало.
 updates:
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -11,3 +14,16 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "actions"
+
+  # Библиотеки Gradle: Dependabot присылает обновления, «Проверки» показывают,
+  # что сборка не сломалась. Хэши артефактов пока не закреплены: файл
+  # gradle/verification-metadata.xml создаётся только локальным Gradle
+  # (./gradlew --write-verification-metadata sha256), а здесь его собрать
+  # нечем. Ограничение записано в docs/ROADMAP.md.
+  - package-ecosystem: "gradle"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "gradle"
