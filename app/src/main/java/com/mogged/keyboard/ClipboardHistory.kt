@@ -3,11 +3,13 @@ package com.mogged.keyboard
 import org.json.JSONArray
 import org.json.JSONObject
 
-/** Запись истории буфера: текст, время копирования и закрепление. */
+/** Запись истории буфера: текст, время копирования, закрепление и порядок. */
 data class ClipEntry(
     val text: String,
     val time: Long,
-    val pinned: Boolean = false
+    val pinned: Boolean = false,
+    /** Место среди закреплённых: 1 — верхнее. У незакреплённых всегда 0. */
+    val order: Int = 0
 )
 
 /**
@@ -78,11 +80,21 @@ object ClipboardHistory {
         skipCodes: Boolean = true
     ): Boolean {
         if (!accepts(text, skipCodes)) return false
-        val pinned = list.firstOrNull { it.text == text }?.pinned ?: false
+        val existing = list.firstOrNull { it.text == text }
+        val pinned = existing?.pinned ?: false
+        // Повтор закреплённой записи остаётся на своём месте: время
+        // обновляется, порядок среди закреплённых — нет.
+        val order = if (pinned) existing?.order ?: 0 else 0
         list.removeAll { it.text == text }
-        list.add(0, ClipEntry(text, now, pinned))
+        list.add(0, ClipEntry(text, now, pinned, order))
         trim(list)
         return true
+    }
+
+    /** Порядок для новой закреплённой: в конец блока или в его начало. */
+    private fun nextOrder(list: List<ClipEntry>, down: Boolean): Int {
+        val orders = list.filter { it.pinned }.map { it.order }
+        return if (orders.isEmpty()) 1 else if (down) orders.max() + 1 else orders.min() - 1
     }
 
     /**
@@ -118,8 +130,48 @@ object ClipboardHistory {
     fun togglePin(list: MutableList<ClipEntry>, index: Int): Boolean {
         val entry = list.getOrNull(index) ?: return false
         if (!entry.pinned && list.count { it.pinned } >= MAX_PINNED) return false
-        list[index] = entry.copy(pinned = !entry.pinned)
+        val order = if (entry.pinned) 0 else nextOrder(list, down = true)
+        list[index] = entry.copy(pinned = !entry.pinned, order = order)
         return true
+    }
+
+    /**
+     * Порядок показа: закреплённые сверху, по своему порядку, затем
+     * незакреплённые — как легли. Сортировка устойчивая, поэтому записи
+     * из прежних версий (order = 0) остаются на своих местах.
+     */
+    fun arrange(list: MutableList<ClipEntry>) {
+        list.sortWith(compareByDescending<ClipEntry> { it.pinned }.thenBy { it.order })
+    }
+
+    /**
+     * Перетаскивание записи: меняются местами только записи одного вида —
+     * закреплённая с закреплённой, обычная с обычной. Порядок закреплённых
+     * после переноса нумеруется заново: 1 — верхняя.
+     */
+    fun move(list: MutableList<ClipEntry>, from: Int, to: Int): Boolean {
+        if (from == to) return false
+        val moved = list.getOrNull(from) ?: return false
+        val target = list.getOrNull(to) ?: return false
+        if (moved.pinned != target.pinned) return false
+        list.removeAt(from)
+        list.add(to, moved)
+        renumber(list)
+        return true
+    }
+
+    /** Нумерация закреплённых по порядку, у незакреплённых — ноль. */
+    private fun renumber(list: MutableList<ClipEntry>) {
+        var order = 0
+        for (i in list.indices) {
+            val entry = list[i]
+            if (!entry.pinned) {
+                if (entry.order != 0) list[i] = entry.copy(order = 0)
+                continue
+            }
+            order++
+            if (entry.order != order) list[i] = entry.copy(order = order)
+        }
     }
 
     fun remove(list: MutableList<ClipEntry>, index: Int) {
@@ -133,7 +185,13 @@ object ClipboardHistory {
         return list.filter { it.text.contains(q, ignoreCase = true) }
     }
 
-    /** JSON для зашифрованного файла: текст, время, закрепление. */
+    /** Фильтры окна истории: поиск и «только закреплённые». */
+    fun filter(list: List<ClipEntry>, query: String, pinnedOnly: Boolean): List<ClipEntry> {
+        val found = search(list, query)
+        return if (pinnedOnly) found.filter { it.pinned } else found
+    }
+
+    /** JSON для зашифрованного файла: текст, время, закрепление и порядок. */
     fun toJson(list: List<ClipEntry>): String {
         val array = JSONArray()
         list.forEach { entry ->
@@ -142,6 +200,7 @@ object ClipboardHistory {
                     .put("text", entry.text)
                     .put("time", entry.time)
                     .put("pinned", entry.pinned)
+                    .put("order", entry.order)
             )
         }
         return array.toString()
@@ -166,13 +225,16 @@ object ClipboardHistory {
                 ClipEntry(
                     text = text,
                     time = item.optLong("time", 0L),
-                    pinned = item.optBoolean("pinned", false)
+                    pinned = item.optBoolean("pinned", false),
+                    // В файлах 0.12–0.13 порядка не было: остаётся ноль.
+                    order = item.optInt("order", 0)
                 )
             )
         }
         // Файл могли поправить руками или он остался от старой версии:
         // закреплённых всё равно не больше десяти.
         trim(list)
+        arrange(list)
         return list
     }
 }
