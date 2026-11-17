@@ -81,7 +81,7 @@ dependencies {
     // а из галереи приходят и PNG, и WebP.
     implementation("androidx.exifinterface:exifinterface:1.3.7")
     // Окно истории: карточки со свайпом и перетаскиванием.
-    implementation("androidx.recyclerview:recyclerview:1.3.2")
+    implementation("androidx.recyclerview:recyclerview:1.4.0")
     testImplementation("junit:junit:4.13.2")
     // На устройстве JSON даёт Android, а в юнит-тестах нужна обычная JVM-реализация.
     testImplementation("org.json:json:20240303")
