@@ -301,10 +301,26 @@
     <string name="clip_turn_off_text">Новые копии перестанут сохраняться. Уже сохранённое можно удалить сейчас или оставить до конца срока.</string>
     <string name="clip_turn_off_delete">Удалить историю</string>
     <string name="clip_turn_off_keep">Оставить</string>
+    <string name="clip_handle">Потяните, чтобы изменить высоту</string>
+    <string name="clip_filter_all">Все</string>
+    <string name="clip_filter_pinned">Закреплённые</string>
+    <string name="clip_clear_unpinned">Очистить незакреплённые</string>
+    <string name="clip_deleted">Удалено</string>
+    <string name="clip_undo">Отменить</string>
+    <string name="clip_move_handle">Перетащить запись</string>
+    <string name="clip_card_menu">Действия с записью</string>
+    <string name="clip_card_hint">%1$s. Долгое нажатие — действия</string>
+    <string name="clip_edit_before">Изменить перед вставкой</string>
+    <string name="clip_edit_hint">Текст вставлен: правьте его в поле</string>
+    <string name="clip_copy_back">Скопировать обратно</string>
+    <string name="clip_move_up">Выше</string>
+    <string name="clip_move_down">Ниже</string>
+    <string name="clip_footer_hint">Долгое нажатие на запись — действия, свайп влево — удалить</string>
+    <string name="clip_save_failed">Не удалось сохранить: разблокируйте телефон</string>
 
     <!-- 0.13.0: копия и обновление -->
     <string name="backup_templates_title">Шаблоны уйдут открытым текстом</string>
-    <string name="backup_templates_text">В резервной копии настройки и шаблоны лежат читаемым текстом: иначе копию нельзя перенести на другое устройство. Не выкладывайте файл в общий доступ. История буфера в копию не входит.</string>
+    <string name="backup_templates_text">На телефоне шаблоны зашифрованы, но в резервной копии они лежат читаемым текстом: иначе копию нельзя перенести на другое устройство. Не выкладывайте файл в общий доступ. История буфера в копию не входит.</string>
     <string name="backup_templates_ok">Продолжить</string>
     <string name="update_signature_bad">Файл подписан другим ключом. Установка отменена — скачайте обновление заново.</string>
     <string name="update_signature_none">Не удалось проверить подпись файла</string>
