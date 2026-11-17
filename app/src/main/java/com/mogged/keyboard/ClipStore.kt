@@ -53,6 +53,15 @@ object ClipStore {
      */
     private var loadFailed = false
 
+    /**
+     * Итог чтения: записи и признак «файл действительно прочитан».
+     *
+     * [ok] = false означает временную неудачу: файл на месте, но сейчас его
+     * не открыть. Вызывающий не должен считать историю загруженной — иначе
+     * старая история не появится до конца жизни процесса клавиатуры.
+     */
+    data class Loaded(val entries: MutableList<ClipEntry>, val ok: Boolean)
+
     fun file(context: Context): File = File(context.noBackupFilesDir, FILE)
 
     /**
@@ -78,32 +87,35 @@ object ClipStore {
         return false
     }
 
-    /** Читает историю. Нет файла или прочитать не вышло — пусто. */
+    /**
+     * Читает историю вместе с признаком удачи. Нет файла — пусто и ok = true:
+     * читать нечего, значит запрет на запись не нужен.
+     */
     @Synchronized
-    fun load(context: Context): MutableList<ClipEntry> {
+    fun read(context: Context): Loaded {
         loadFailed = false
         val file = file(context)
-        if (!file.isFile) return mutableListOf()
+        if (!file.isFile) return Loaded(mutableListOf(), true)
 
         val bytes = try {
             file.readBytes()
         } catch (t: Throwable) {
             // Файл занят или недоступен: не удаляем, прочитаем в следующий раз.
             loadFailed = true
-            return mutableListOf()
+            return Loaded(mutableListOf(), false)
         }
 
         if (bytes.size <= 1 + IV_BYTES) {
             // Обрезанный файл: данных в нём всё равно нет.
             clear(context)
-            return mutableListOf()
+            return Loaded(mutableListOf(), true)
         }
 
         val version = bytes[0].toInt() and 0xff
         if (version != VERSION && version != VERSION_OLD) {
             // Файл от другой версии формата — расшифровать его нечем.
             clear(context)
-            return mutableListOf()
+            return Loaded(mutableListOf(), true)
         }
 
         val iv = bytes.copyOfRange(1, 1 + IV_BYTES)
@@ -115,19 +127,22 @@ object ClipStore {
             } catch (t: Throwable) {
                 // Keystore временно недоступен: файл не трогаем.
                 loadFailed = true
-                return mutableListOf()
+                return Loaded(mutableListOf(), false)
             }
             if (key == null) {
                 // Новый ключ пропал: файл уже не прочитать никогда.
                 clear(context)
-                return mutableListOf()
+                return Loaded(mutableListOf(), true)
             }
-            return try {
-                ClipboardHistory.fromJson(decrypt(key, iv, data))
-            } catch (t: Throwable) {
-                if (shouldWipe(t)) clear(context) else loadFailed = true
-                mutableListOf()
-            }
+            return Loaded(
+                try {
+                    ClipboardHistory.fromJson(decrypt(key, iv, data))
+                } catch (t: Throwable) {
+                    if (shouldWipe(t)) clear(context) else loadFailed = true
+                    mutableListOf()
+                },
+                !loadFailed
+            )
         }
 
         // ── файл 0.12–0.13: переезд на ключ, привязанный к разблокировке ──
@@ -136,12 +151,12 @@ object ClipStore {
         } catch (t: Throwable) {
             // Keystore временно недоступен: файл не трогаем.
             loadFailed = true
-            return mutableListOf()
+            return Loaded(mutableListOf(), false)
         }
         if (old == null) {
             // Ключа нет, а файл есть: расшифровать нечем, мусор убираем.
             clear(context)
-            return mutableListOf()
+            return Loaded(mutableListOf(), true)
         }
         val list = try {
             ClipboardHistory.fromJson(decrypt(old, iv, data))
@@ -149,14 +164,17 @@ object ClipStore {
             // Запертый телефон сюда попадает как UserNotAuthenticatedException:
             // shouldWipe = false, файл и ключ остаются до разблокировки.
             if (shouldWipe(t)) clear(context) else loadFailed = true
-            return mutableListOf()
+            return Loaded(mutableListOf(), !loadFailed)
         }
 
         // Сначала удачная запись новым ключом, только потом удаление старого:
         // если телефон выключат посреди переезда, история не потеряется.
         if (save(context, list)) deleteKey(ALIAS_V1)
-        return list
+        return Loaded(list, true)
     }
+
+    /** Прежний вид [read], когда признак неудачи не нужен. */
+    fun load(context: Context): MutableList<ClipEntry> = read(context).entries
 
     /**
      * Шифрует и записывает историю целиком. false — записать не удалось,
@@ -247,46 +265,48 @@ object ClipStore {
     private fun key(alias: String): SecretKey {
         existingKey(alias)?.let { return it }
 
-        // Ключ работает только на разблокированном устройстве: пока телефон
-        // заперт, история недоступна даже самой клавиатуре.
-        val spec = KeyGenParameterSpec.Builder(
+        // Флаг «только на разблокированном устройстве» умеют не все прошивки:
+        // на телефоне без блокировки экрана создание ключа с ним падает.
+        // Тогда берём тот же аппаратный ключ без флага — он всё равно
+        // неэкспортируемый, а история остаётся доступной.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val unlocked = spec(alias).setUnlockedDeviceRequired(true)
+
+            // StrongBox — отдельный чип для ключей. Есть не на всех телефонах,
+            // поэтому при отказе идём дальше по списку.
+            try {
+                return generate(unlocked, strongBox = true)
+            } catch (t: Throwable) {
+                // чипа нет или он занят
+            }
+            try {
+                return generate(unlocked, strongBox = false)
+            } catch (t: Throwable) {
+                // прошивка не поддерживает «только разблокированный»
+            }
+        }
+
+        return generate(spec(alias), strongBox = false)
+    }
+
+    private fun spec(alias: String): KeyGenParameterSpec.Builder =
+        KeyGenParameterSpec.Builder(
             alias,
             KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
         )
             .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
             .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
             .setKeySize(256)
-            .apply {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    setUnlockedDeviceRequired(true)
-                }
-            }
 
-        // StrongBox — отдельный чип для ключей. Есть не на всех телефонах,
-        // поэтому при отказе берём обычный Keystore.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            try {
-                val generator = KeyGenerator.getInstance(
-                    KeyProperties.KEY_ALGORITHM_AES,
-                    "AndroidKeyStore"
-                )
-                generator.init(spec.setIsStrongBoxBacked(true).build())
-                return generator.generateKey()
-            } catch (t: Throwable) {
-                // чипа нет или он занят
-            }
-        }
-
+    private fun generate(builder: KeyGenParameterSpec.Builder, strongBox: Boolean): SecretKey {
         val generator = KeyGenerator.getInstance(
             KeyProperties.KEY_ALGORITHM_AES,
             "AndroidKeyStore"
         )
-        val plain = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            spec.setIsStrongBoxBacked(false).build()
-        } else {
-            spec.build()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            builder.setIsStrongBoxBacked(strongBox)
         }
-        generator.init(plain)
+        generator.init(builder.build())
         return generator.generateKey()
     }
 }
