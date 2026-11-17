@@ -34,6 +34,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
@@ -44,12 +45,14 @@ import android.widget.HorizontalScrollView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.PopupWindow
-import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.widget.TooltipCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.recyclerview.widget.ItemTouchHelper
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.color.DynamicColors
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -63,6 +66,10 @@ class MoggedKeyboardService : InputMethodService() {
 
     private var root: LinearLayout? = null
     private var rowsBox: LinearLayout? = null
+    /** Панель над клавишами: своя полоса во всю ширину окна. */
+    private var panelStrip: LinearLayout? = null
+    /** Системный отступ снизу: жесты, навигация, вырез. */
+    private var systemBottom = 0
     private var lastWidth = 0
 
     private var page = Page.LETTERS
@@ -165,14 +172,32 @@ class MoggedKeyboardService : InputMethodService() {
     private var previewPopup: PopupWindow? = null
     private var altPopup: PopupWindow? = null
     private var oneHandPopup: PopupWindow? = null
-    private var clipPopup: PopupWindow? = null
-    private var clipPopupAnchor: View? = null
+    /** Окно истории: слой поверх клавиатуры, а не список-попап. */
+    private var shell: FrameLayout? = null
+    private var sheet: View? = null
+    private var sheetOpen = false
+    /** Высота окна истории в пикселях: средняя или высокая. */
+    private var sheetHeightPx = 0
+    /** Поиск: клавиши печатают в строку поиска, а не в приложение. */
+    private var searchMode = false
+    private var clipQuery = ""
+    private var pinnedOnly = false
+    private var searchLabel: TextView? = null
+    /** Какая карточка открыла меню действий: -1 — меню закрыто. */
+    private var menuIndex = -1
+
+    /** Удаление с отменой: запись и место, куда её вернуть. */
+    private var undoEntry: ClipEntry? = null
+    private var undoIndex = 0
+    private val undoTask = Runnable { hideUndoBar(revert = false) }
 
     // ── история буфера ───────────────────────────────────────
     private var clipEnabled = false
     private var clipRetention = ClipboardHistory.RETENTION_DAY
-    private var clips: MutableList<ClipEntry> = mutableListOf()
-    private var clipsLoaded = false
+
+    /** История в памяти: загрузка с диска и повтор после неудачи — в [ClipCache]. */
+    private val clipCache = ClipCache { ClipStore.read(this) }
+    private val clips: MutableList<ClipEntry> get() = clipCache.entries
 
     /** Копия, лежащая в буфере при открытии панели: ждёт кнопки «Сохранить». */
     private var pendingClip: String? = null
@@ -223,7 +248,7 @@ class MoggedKeyboardService : InputMethodService() {
         prefs.store.unregisterOnSharedPreferenceChangeListener(prefListener)
         dismissAlternatives()
         dismissOneHandPanel()
-        dismissHistory()
+        closeSheet()
         hidePreview()
         stopClipWatch()
         clickSound?.release()
@@ -309,7 +334,7 @@ class MoggedKeyboardService : InputMethodService() {
         val epoch = prefs.clipEpoch
         if (epoch != clipEpochSeen) {
             clipEpochSeen = epoch
-            clipsLoaded = false
+            clipCache.reset()
         }
     }
 
@@ -321,7 +346,7 @@ class MoggedKeyboardService : InputMethodService() {
 
     private fun buildInputView(): View {
         dismissOneHandPanel()
-        dismissHistory()
+        closeSheet()
         builtTheme = selTheme
         builtDynamic = dynamicColor
         builtPanel = panelOn
@@ -332,67 +357,107 @@ class MoggedKeyboardService : InputMethodService() {
         ctx = themedContext()
         loadColors()
 
-        val r = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
-            // Режим одной руки прижимает блок клавиш к выбранному краю.
-            gravity = when (Widths.side(oneHand)) {
-                -1 -> Gravity.LEFT
-                1 -> Gravity.RIGHT
-                else -> Gravity.CENTER_HORIZONTAL
-            }
-            setPadding(sidePadding(), dp(6), sidePadding(), dp(8))
+        // Корень — рамка: окно истории рисуется поверх клавиатуры.
+        val frame = FrameLayout(ctx).apply {
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 keyboardHeight() + panelHeight()
             )
         }
 
-        // Панель инструментов над клавишами: своя строка, клавиши делят остаток.
+        val r = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            // Боковых полей у корня нет: панель идёт от края до края окна.
+            setPadding(0, dp(6), 0, dp(8))
+        }
+
+        // Панель инструментов над клавишами: своя строка во всю ширину.
         if (panelOn) {
+            val strip = panelView()
+            panelStrip = strip
             r.addView(
-                panelView(),
+                strip,
                 LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
                 )
             )
+        } else {
+            panelStrip = null
+        }
+
+        // Клавиши слушают свои настройки: процент ширины и режим одной руки.
+        val wrap = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = when (Widths.side(oneHand)) {
+                -1 -> Gravity.LEFT
+                1 -> Gravity.RIGHT
+                else -> Gravity.CENTER_HORIZONTAL
+            }
+            setPadding(sidePadding(), 0, sidePadding(), 0)
         }
 
         // На планшетах и складных клавиши не растягиваем сверх выбранной ширины.
         val box = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
         }
-        r.addView(
+        wrap.addView(
             box,
+            ViewGroup.LayoutParams(contentWidth(), ViewGroup.LayoutParams.MATCH_PARENT)
+        )
+        r.addView(
+            wrap,
             if (panelOn) {
-                LinearLayout.LayoutParams(contentWidth(), 0, 1f)
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
             } else {
                 LinearLayout.LayoutParams(
-                    contentWidth(), ViewGroup.LayoutParams.MATCH_PARENT
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
                 )
             }
         )
+        // Клавиатура прижата к низу: когда окно истории поднимает высоту окна,
+        // над клавишами появляется место, а сами клавиши не растягиваются.
+        frame.addView(
+            r,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                keyboardHeight() + panelHeight(),
+                Gravity.BOTTOM
+            )
+        )
 
         // Учитываем навигационную панель / жесты / вырез экрана.
-        ViewCompat.setOnApplyWindowInsetsListener(r) { view, insets ->
+        ViewCompat.setOnApplyWindowInsetsListener(frame) { view, insets ->
             val nav = insets.getInsets(WindowInsetsCompat.Type.navigationBars())
             val gestures = insets.getInsets(WindowInsetsCompat.Type.mandatorySystemGestures())
             val cutout = insets.getInsets(WindowInsetsCompat.Type.displayCutout())
-            val bottom = maxOf(nav.bottom, gestures.bottom, cutout.bottom)
+            systemBottom = maxOf(nav.bottom, gestures.bottom, cutout.bottom)
                 .coerceAtMost(dp(48))
-            view.setPadding(sidePadding(), dp(6), sidePadding(), dp(8) + bottom)
+            view.setPadding(0, 0, 0, 0)
+            r.setPadding(0, dp(6), 0, dp(8) + systemBottom)
+            // Панель не уходит под вырез в альбомной ориентации.
+            panelStrip?.setPadding(
+                maxOf(dp(PanelBar.SIDE_DP), cutout.left),
+                dp(2),
+                maxOf(dp(PanelBar.SIDE_DP), cutout.right),
+                dp(2)
+            )
+            applySheetSize()
             insets
         }
 
         // Смена размера окна (split-screen, складной, поворот) — пересчитываем.
-        r.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-            if (r.width > 0 && r.width != lastWidth) {
-                lastWidth = r.width
+        frame.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            if (frame.width > 0 && frame.width != lastWidth) {
+                lastWidth = frame.width
                 box.layoutParams = box.layoutParams.apply { width = contentWidth() }
+                if (sheetOpen) buildSheet()
                 render()
             }
         }
 
+        shell = frame
         root = r
         rowsBox = box
         // Новый набор вью: подписи и цвета надо построить заново.
@@ -400,8 +465,8 @@ class MoggedKeyboardService : InputMethodService() {
         holders.clear()
         readEditorInfo(currentInputEditorInfo)
         render()
-        r.post { ViewCompat.requestApplyInsets(r) }
-        return r
+        frame.post { ViewCompat.requestApplyInsets(frame) }
+        return frame
     }
 
     /**
@@ -1357,11 +1422,16 @@ class MoggedKeyboardService : InputMethodService() {
         clipWatching = false
     }
 
-    private fun ensureClipsLoaded() {
-        if (clipsLoaded) return
-        clips = ClipStore.load(this)
-        clipsLoaded = true
-        pruneClips()
+    /**
+     * Читает историю с диска ровно один раз, но только если это удалось.
+     * Пока файл не читается (телефон заперт), попытки повторяются при каждом
+     * показе клавиатуры и при открытии окна истории — записи, накопленные
+     * в памяти, при удачном чтении добавляются к файлу, а не теряются.
+     */
+    private fun ensureClipsLoaded(): Boolean {
+        val ok = clipCache.ensure()
+        if (ok) pruneClips()
+        return ok
     }
 
     /**
@@ -1371,8 +1441,9 @@ class MoggedKeyboardService : InputMethodService() {
      */
     private fun pruneClips() {
         if (!clipEnabled) return
-        ensureClipsLoaded()
+        if (!clipCache.ensure()) return
         if (ClipboardHistory.prune(clips, System.currentTimeMillis(), clipRetention)) {
+            ClipboardHistory.arrange(clips)
             ClipStore.save(this, clips)
         }
     }
@@ -1381,7 +1452,7 @@ class MoggedKeyboardService : InputMethodService() {
      * Читает буфер и кладёт текст в историю.
      *
      * Вызывается только слушателем буфера: копию, сделанную мимо клавиатуры,
-     * при открытии панели не сохраняем, а показываем строкой «Текущий буфер»
+     * при открытии окна не сохраняем, а показываем строкой «Текущий буфер»
      * с кнопкой «Сохранить». Иначе пароль из менеджера паролей (до Android 13
      * без пометки «секретно») оставался бы в истории надолго.
      */
@@ -1389,11 +1460,16 @@ class MoggedKeyboardService : InputMethodService() {
         if (!clipEnabled || !clipViewAllowed()) return
         val text = readClipText() ?: return
 
+        // История ещё не прочитана: запись всё равно остаётся в памяти,
+        // а на диск уйдёт после удачного чтения.
         ensureClipsLoaded()
         val now = System.currentTimeMillis()
         val added = ClipboardHistory.add(clips, text, now, prefs.clipSkipCodes)
         val pruned = ClipboardHistory.prune(clips, now, clipRetention)
-        if (added || pruned) ClipStore.save(this, clips)
+        if (added || pruned) {
+            ClipboardHistory.arrange(clips)
+            ClipStore.save(this, clips)
+        }
     }
 
     /**
@@ -1419,107 +1495,698 @@ class MoggedKeyboardService : InputMethodService() {
         return extras.getBoolean(ClipDescription.EXTRA_IS_SENSITIVE, false)
     }
 
-    private fun dismissHistory() {
-        try {
-            clipPopup?.dismiss()
-        } catch (t: Throwable) {
-            // окно уже закрыто
-        }
-        clipPopup = null
-        clipPopupAnchor = null
-        pendingClip = null
-    }
+    /** Закрывает окно истории и снимает запрет на скриншоты. */
+    private fun closeSheet() {
+        handler.removeCallbacks(undoTask)
+        if (!sheetOpen && sheet == null) return
+        sheetOpen = false
+        searchMode = false
+        clipQuery = ""
+        pinnedOnly = false
+        undoEntry = null
 
-    private fun refreshHistory() {
-        val anchor = clipPopupAnchor ?: return
-        showHistoryPopup(anchor)
+        searchLabel = null
+        pendingClip = null
+        val view = sheet
+        (view?.parent as? ViewGroup)?.removeView(view)
+        sheet = null
+        secureWindow(false)
+        val frame = shell ?: return
+        frame.layoutParams = frame.layoutParams.apply {
+            height = keyboardHeight() + panelHeight()
+        }
+        frame.requestLayout()
     }
 
     /**
-     * Список истории над кнопкой панели: тап вставляет текст, долгое нажатие
-     * закрепляет, свайп в сторону удаляет. Поиск живёт в настройках: IME
-     * не может надёжно печатать в собственное всплывающее окно.
+     * Окно истории открывается поверх клавиатуры как нижняя панель.
+     * В защищённых полях и в инкогнито оно не открывается вовсе.
      */
-    private fun showHistoryPopup(anchor: View) {
-        dismissHistory()
-        clipPopupAnchor = anchor
-
+    private fun openSheet() {
+        if (sheetOpen) return
+        if (!clipViewAllowed()) return
         // Копию, сделанную мимо клавиатуры, не сохраняем сами: показываем
         // её отдельной строкой, человек решает, нужна ли она в истории.
-        pendingClip = if (clipEnabled && clipViewAllowed()) readClipText() else null
+        pendingClip = if (clipEnabled) readClipText() else null
+        sheetOpen = true
+        searchMode = false
+        clipQuery = ""
+        pinnedOnly = false
+        menuIndex = -1
+        sheetHeightPx = mediumSheetHeight()
+        secureWindow(true)
+        buildSheet()
+    }
+
+    /** Пока окно открыто, система не делает скриншотов и не пишет экран. */
+    private fun secureWindow(on: Boolean) {
+        val window = window?.window ?: return
+        if (on) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+    }
+
+    private fun mediumSheetHeight(): Int = keyboardHeight()
+
+    /** Высокое окно — 90% доступной области, но не больше экрана. */
+    private fun highSheetHeight(): Int {
+        val available = dp(windowHeightDp()) - systemBottom
+        return minOf((available * 0.9f).toInt(), maxSheetHeight())
+    }
+
+    /** Выше клавиатуры остаётся место: окно не вылезает за экран. */
+    private fun maxSheetHeight(): Int {
+        val available = dp(windowHeightDp()) - systemBottom - keyboardHeight() - panelHeight()
+        return available.coerceAtLeast(dp(160))
+    }
+
+    /**
+     * Окно занимает место над клавиатурой: среднее — как блок клавиш,
+     * высокое — 90% области. Клавиатура остаётся видимой, поэтому поиск
+     * можно набирать обычными клавишами.
+     */
+    private fun applySheetSize() {
+        val frame = shell ?: return
+        if (!sheetOpen) return
+        val base = keyboardHeight() + panelHeight()
+        sheetHeightPx = sheetHeightPx.coerceIn(dp(120), maxSheetHeight())
+        val total = base + sheetHeightPx
+        frame.layoutParams = frame.layoutParams.apply { height = total }
+        sheet?.layoutParams = FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            sheetHeightPx,
+            Gravity.TOP
+        )
+        frame.requestLayout()
+    }
+
+    /**
+     * Окно истории: шапка с поиском и фильтрами, список карточек, отмена
+     * удаления внизу. Собирается заново после действий, которые меняют
+     * состав окна; поиск и фильтр обновляют только список
+     * ([applySheetFilter]), поэтому набор текста не мигает.
+     */
+    private fun buildSheet() {
+        if (!sheetOpen) return
+        val frame = shell ?: return
+        val previous = sheet
+        (previous?.parent as? ViewGroup)?.removeView(previous)
 
         val box = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(6), dp(6), dp(6), dp(6))
             background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(20).toFloat()
+                // Скруглены только верхние углы: панель прижата к низу.
+                cornerRadii = floatArrayOf(
+                    dp(20).toFloat(), dp(20).toFloat(),
+                    dp(20).toFloat(), dp(20).toFloat(),
+                    0f, 0f, 0f, 0f
+                )
                 setColor(cSurfaceContainerHigh)
             }
         }
 
-        val list = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+        box.addView(handleBar())
+        box.addView(headerRow())
+        box.addView(counterRow())
 
         if (!clipEnabled) {
-            list.addView(emptyHistory(getString(R.string.clip_history_off)))
+            box.addView(
+                emptyHistory(getString(R.string.clip_history_off)),
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f
+                )
+            )
         } else {
             ensureClipsLoaded()
             if (ClipboardHistory.prune(clips, System.currentTimeMillis(), clipRetention)) {
+                ClipboardHistory.arrange(clips)
                 ClipStore.save(this, clips)
             }
-
             val current = pendingClip
             if (current != null && clips.none { it.text == current }) {
-                list.addView(currentClipRow(current))
+                box.addView(currentClipRow(current))
             }
-
-            if (clips.isEmpty()) {
-                if (current == null) {
-                    list.addView(emptyHistory(getString(R.string.clip_history_empty)))
-                }
-            } else {
-                clips.forEachIndexed { index, entry ->
-                    list.addView(historyRow(index, entry))
-                }
-            }
-        }
-
-        box.addView(
-            ScrollView(ctx).apply {
-                isVerticalScrollBarEnabled = false
-                addView(list)
-            }
-        )
-
-        val maxWidth = (contentWidth() - dp(8)).coerceIn(dp(200), dp(420))
-        // Выше кнопки должно хватить места: на низком экране список короче.
-        val location = IntArray(2)
-        anchor.getLocationOnScreen(location)
-        val maxHeight = minOf(dp(320), (location[1] - dp(8)).coerceAtLeast(dp(120)))
-        box.measure(
-            View.MeasureSpec.makeMeasureSpec(maxWidth, View.MeasureSpec.EXACTLY),
-            View.MeasureSpec.makeMeasureSpec(maxHeight, View.MeasureSpec.AT_MOST)
-        )
-        val height = box.measuredHeight
-
-        val popup = PopupWindow(box, maxWidth, height, false).apply {
-            isOutsideTouchable = true
-            isFocusable = false
-            setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
-            elevation = dp(8).toFloat()
-        }
-
-        try {
-            popup.showAsDropDown(
-                anchor,
-                (anchor.width - maxWidth) / 2,
-                -(anchor.height + height + dp(6))
+            box.addView(
+                clipList(),
+                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
             )
-        } catch (t: Throwable) {
-            clipPopupAnchor = null
-            return
         }
-        clipPopup = popup
+
+        box.addView(undoBarView())
+        if (menuIndex in clips.indices) {
+            box.addView(cardMenu(menuIndex))
+        } else {
+            menuIndex = -1
+            box.addView(footerRow())
+        }
+
+        sheet = box
+        frame.addView(
+            box,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                sheetHeightPx,
+                Gravity.TOP
+            )
+        )
+        applySheetSize()
+        updateSearchLabel()
+    }
+
+    /**
+     * Ручка сверху: тянется пальцем, отпускание фиксирует среднюю или
+     * высокую высоту. Высокое окно — 90% доступной области.
+     */
+    @SuppressLint("ClickableViewAccessibility")
+    private fun handleBar(): View {
+        val box = FrameLayout(ctx).apply {
+            // Полоса пошире самого штриха: за ручку удобно браться пальцем.
+            setPadding(0, dp(12), 0, dp(12))
+            contentDescription = getString(R.string.clip_handle)
+        }
+        box.addView(
+            View(ctx).apply {
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(2).toFloat()
+                    setColor(
+                        Palette.readable(cOnKeyVariant, cSurfaceContainerHigh, contrastTarget)
+                    )
+                }
+            },
+            FrameLayout.LayoutParams(dp(40), dp(4), Gravity.CENTER)
+        )
+
+        var startY = 0f
+        var startHeight = 0
+        box.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    startY = event.rawY
+                    startHeight = sheetHeightPx
+                    true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val delta = (startY - event.rawY).toInt()
+                    sheetHeightPx = (startHeight + delta)
+                        .coerceIn(dp(120), maxSheetHeight())
+                    applySheetSize()
+                    true
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    val high = highSheetHeight()
+                    val middle = mediumSheetHeight()
+                    sheetHeightPx = if (sheetHeightPx > (middle + high) / 2) high else middle
+                    applySheetSize()
+                    true
+                }
+                else -> false
+            }
+        }
+        return box
+    }
+
+    /** Поиск, фильтры «Все» и «Закреплённые», закрытие. */
+    private fun headerRow(): View {
+        val row = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(8), 0, dp(8), dp(2))
+        }
+
+        val field = TextView(ctx).apply {
+            textSize = specialSize
+            maxLines = 1
+            ellipsize = TextUtils.TruncateAt.END
+            includeFontPadding = false
+            setPadding(dp(12), dp(6), dp(12), dp(6))
+            background = tonalBackground(cSurfaceContainerHighest)
+            isClickable = true
+            isFocusable = true
+            contentDescription = getString(R.string.clip_search_hint)
+            setOnClickListener {
+                tap()
+                searchMode = !searchMode
+                updateSearchLabel()
+            }
+        }
+        searchLabel = field
+        row.addView(field, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(6) })
+
+        row.addView(filterChip(getString(R.string.clip_filter_all), !pinnedOnly, dp(48)) {
+            pinnedOnly = false
+            buildSheet()
+        })
+        row.addView(filterChip(getString(R.string.clip_filter_pinned), pinnedOnly, dp(48)) {
+            pinnedOnly = true
+            buildSheet()
+        })
+        row.addView(
+            ImageView(ctx).apply {
+                setImageResource(R.drawable.ic_panel_back)
+                imageTintList = ColorStateList.valueOf(
+                    Palette.readable(cOnKey, cSurfaceContainerHigh, contrastTarget)
+                )
+                background = keyBackground(
+                    cSurfaceContainerHighest,
+                    dp(funcRadiusDp.coerceAtMost(16)).toFloat()
+                )
+                setPadding(dp(10), dp(8), dp(10), dp(8))
+                contentDescription = getString(R.string.clip_close)
+                isClickable = true
+                setOnClickListener {
+                    tap()
+                    closeSheet()
+                }
+            },
+            LinearLayout.LayoutParams(dp(48), dp(48)).apply { marginStart = dp(6) }
+        )
+        return row
+    }
+
+    /** «Записей N из 30» и очистка незакреплённых. */
+    private fun counterRow(): View {
+        val row = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), 0, dp(8), 0)
+        }
+        row.addView(
+            TextView(ctx).apply {
+                text = counterText()
+                textSize = hintSize()
+                setTextColor(
+                    Palette.readable(cOnKeyVariant, cSurfaceContainerHigh, contrastTarget)
+                )
+                includeFontPadding = false
+            }.also { counterLabel = it },
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        )
+        if (clips.any { !it.pinned }) {
+            row.addView(
+                TextView(ctx).apply {
+                    text = getString(R.string.clip_clear_unpinned)
+                    textSize = hintSize()
+                    setTextColor(
+                        Palette.readable(cOnPrimaryContainer, cPrimaryContainer, contrastTarget)
+                    )
+                    includeFontPadding = false
+                    setPadding(dp(10), dp(4), dp(10), dp(4))
+                    background = keyBackground(
+                        cPrimaryContainer,
+                        dp(funcRadiusDp.coerceAtMost(16)).toFloat()
+                    )
+                    isClickable = true
+                    setOnClickListener {
+                        tap()
+                        clips.removeAll { !it.pinned }
+                        ClipboardHistory.arrange(clips)
+                        ClipStore.save(this@MoggedKeyboardService, clips)
+                        buildSheet()
+                    }
+                },
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, dp(32)
+                ).apply { marginEnd = dp(8) }
+            )
+        }
+        return row
+    }
+
+    /** «Записей N из 30»: при поиске считаем то, что видно на экране. */
+    private fun counterText(): String {
+        val filtering = clipQuery.isNotBlank() || pinnedOnly
+        val count = if (filtering) ClipboardHistory.filter(clips, clipQuery, pinnedOnly).size
+        else clips.size
+        return getString(R.string.clip_count, count, ClipboardHistory.MAX)
+    }
+
+    /**
+     * Список карточек: перетаскивание закреплённых и свайп для удаления.
+     * Список и пустое состояние живут рядом и переключаются на месте:
+     * поиск не пересобирает окно, поэтому оно не мигает.
+     */
+    private fun clipList(): View {
+        val holder = FrameLayout(ctx)
+
+        val list = RecyclerView(ctx).apply {
+            layoutManager = LinearLayoutManager(ctx)
+            adapter = ClipAdapter()
+            isVerticalScrollBarEnabled = false
+            setPadding(dp(8), dp(4), dp(8), dp(4))
+            clipToPadding = false
+            itemAnimator = null
+        }
+        clipRecycler = list
+        clipAdapter = list.adapter as? ClipAdapter
+        holder.addView(list)
+
+        val emptyBox = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(12), dp(16), dp(12), dp(16))
+        }
+        emptyBox.addView(
+            ImageView(ctx).apply {
+                setImageResource(R.drawable.ic_history_empty)
+                imageTintList = ColorStateList.valueOf(
+                    Palette.readable(cOnKeyVariant, cSurfaceContainerHigh, contrastTarget)
+                )
+                contentDescription = null
+            },
+            LinearLayout.LayoutParams(dp(40), dp(40))
+        )
+        emptyBox.addView(
+            historyHint("").also { clipEmpty = it },
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+        holder.addView(
+            emptyBox,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                Gravity.CENTER
+            )
+        )
+        clipEmptyBox = emptyBox
+
+        val touch = ItemTouchHelper(object : ItemTouchHelper.SimpleCallback(
+            ItemTouchHelper.UP or ItemTouchHelper.DOWN,
+            ItemTouchHelper.LEFT
+        ) {
+            override fun onMove(
+                recycler: RecyclerView,
+                holder: RecyclerView.ViewHolder,
+                target: RecyclerView.ViewHolder
+            ): Boolean {
+                val from = holder.bindingAdapterPosition
+                val to = target.bindingAdapterPosition
+                if (from < 0 || to < 0) return false
+                // Перетаскивание меняет порядок только закреплённых записей;
+                // при поиске и фильтре порядок списка не трогаем.
+                if (clipQuery.isNotBlank() || pinnedOnly) return false
+                val moved = ClipboardHistory.move(clips, from, to)
+                if (moved) {
+                    ClipboardHistory.arrange(clips)
+                    ClipStore.save(this@MoggedKeyboardService, clips)
+                    clipAdapter?.moveItem(from, to)
+                    list.adapter?.notifyItemMoved(from, to)
+                }
+                return moved
+            }
+
+            override fun onSwiped(holder: RecyclerView.ViewHolder, direction: Int) {
+                // В поиске и фильтре номер строки не равен номеру записи:
+                // ищем ту же самую запись, а если её уже заменила
+                // перенумерация — по тексту.
+                val entry = clipAdapter?.itemAt(holder.bindingAdapterPosition) ?: return
+                val index = clips.indexOfFirst { it === entry }
+                    .takeIf { it >= 0 }
+                    ?: clips.indexOfFirst { it.text == entry.text }
+                if (index >= 0) deleteClip(index)
+            }
+
+            override fun isLongPressDragEnabled(): Boolean = false
+
+            override fun onSelectedChanged(holder: RecyclerView.ViewHolder?, actionState: Int) {
+                super.onSelectedChanged(holder, actionState)
+                if (holder != null) holder.itemView.alpha = 0.7f
+            }
+
+            override fun clearView(recycler: RecyclerView, holder: RecyclerView.ViewHolder) {
+                super.clearView(recycler, holder)
+                holder.itemView.alpha = 1f
+                // Список уже переставлен на месте: пересборка сбросила бы
+                // прокрутку и вернула окно к началу.
+            }
+        })
+        touch.attachToRecyclerView(list)
+        clipTouch = touch
+        applySheetFilter()
+        return holder
+    }
+
+    /** Поиск и фильтр обновляют список на месте, без пересборки окна. */
+    private fun applySheetFilter() {
+        val shown = ClipboardHistory.filter(clips, clipQuery, pinnedOnly)
+        val empty = shown.isEmpty()
+        clipAdapter?.submit(shown)
+        clipRecycler?.visibility = if (empty) View.GONE else View.VISIBLE
+        clipEmptyBox?.visibility = if (empty) View.VISIBLE else View.GONE
+        clipEmpty?.text = getString(
+            if (clipQuery.isBlank() && !pinnedOnly) R.string.clip_history_empty
+            else R.string.clip_search_empty
+        )
+        counterLabel?.text = counterText()
+    }
+
+    private var clipTouch: ItemTouchHelper? = null
+    private var clipRecycler: RecyclerView? = null
+    private var clipAdapter: ClipAdapter? = null
+    private var clipEmpty: TextView? = null
+    private var clipEmptyBox: View? = null
+    private var counterLabel: TextView? = null
+    private val undoMs = 5000L
+    private val searchChars = 64
+
+    /** Удаление с отменой: запись и её место запоминаются на пять секунд. */
+    private fun deleteClip(index: Int) {
+        val entry = clips.getOrNull(index) ?: return
+        undoEntry = entry
+        undoIndex = index
+        ClipboardHistory.remove(clips, index)
+        ClipStore.save(this, clips)
+        buildSheet()
+        handler.removeCallbacks(undoTask)
+        handler.postDelayed(undoTask, undoMs)
+    }
+
+    private fun hideUndoBar(revert: Boolean) {
+        handler.removeCallbacks(undoTask)
+        val entry = undoEntry
+        if (revert && entry != null) {
+            clips.add(undoIndex.coerceIn(0, clips.size), entry)
+            ClipboardHistory.arrange(clips)
+            ClipStore.save(this, clips)
+        }
+        undoEntry = null
+        if (sheetOpen) buildSheet()
+    }
+
+    /** Полоса отмены: видна, только пока есть что вернуть. */
+    private fun undoBarView(): View {
+        if (undoEntry == null) return View(ctx).apply { layoutParams = LinearLayout.LayoutParams(0, 0) }
+        val row = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), dp(2), dp(8), dp(2))
+            background = tonalBackground(cSecondaryContainer)
+        }
+        row.addView(
+            TextView(ctx).apply {
+                text = getString(R.string.clip_deleted)
+                textSize = hintSize()
+                setTextColor(
+                    Palette.readable(cOnSecondaryContainer, cSecondaryContainer, contrastTarget)
+                )
+                includeFontPadding = false
+            },
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        )
+        row.addView(
+            TextView(ctx).apply {
+                text = getString(R.string.clip_undo)
+                textSize = hintSize()
+                setTextColor(
+                    Palette.readable(cOnPrimaryContainer, cPrimaryContainer, contrastTarget)
+                )
+                includeFontPadding = false
+                setPadding(dp(12), dp(6), dp(12), dp(6))
+                background = keyBackground(
+                    cPrimaryContainer,
+                    dp(funcRadiusDp.coerceAtMost(16)).toFloat()
+                )
+                isClickable = true
+                setOnClickListener {
+                    tap()
+                    hideUndoBar(revert = true)
+                }
+            },
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                dp(48)
+            )
+        )
+
+        return row
+    }
+
+    /** Низ окна: подсказка про долгое нажатие. */
+    private fun footerRow(): View =
+        TextView(ctx).apply {
+            text = getString(R.string.clip_footer_hint)
+            textSize = hintSize()
+            setTextColor(Palette.readable(cOnKeyVariant, cSurfaceContainerHigh, contrastTarget))
+            includeFontPadding = false
+            setPadding(dp(16), dp(6), dp(16), dp(8))
+        }
+
+    /** Чип фильтра: выбранный — тональный, остальные прозрачные. */
+    private fun filterChip(text: String, active: Boolean, height: Int, onClick: () -> Unit): TextView =
+        TextView(ctx).apply {
+            this.text = text
+            textSize = hintSize()
+            maxLines = 1
+            includeFontPadding = false
+            setPadding(dp(12), dp(6), dp(12), dp(6))
+            background = keyBackground(
+                if (active) cSecondaryContainer else cSurfaceContainerHighest,
+                dp(funcRadiusDp.coerceAtMost(16)).toFloat()
+            )
+            setTextColor(
+                Palette.readable(
+                    if (active) cOnSecondaryContainer else cOnKeyVariant,
+                    if (active) cSecondaryContainer else cSurfaceContainerHighest,
+                    contrastTarget
+                )
+            )
+            isClickable = true
+            setOnClickListener {
+                tap()
+                onClick()
+            }
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                height
+            ).apply { marginStart = dp(4) }
+        }
+
+    /** Карточка записи: текст до трёх строк, время, булавка, ручка и меню. */
+    private fun clipCard(entry: ClipEntry, position: Int): View {
+        val index = clips.indexOfFirst { it.text == entry.text }
+        val card = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(12), dp(8), dp(4), dp(8))
+            background = tonalBackground(
+                if (entry.pinned) cSecondaryContainer else cSurfaceContainerHighest
+            )
+            isClickable = true
+            isFocusable = true
+            contentDescription = getString(
+                if (entry.pinned) R.string.clip_meta_pinned else R.string.clip_card_hint,
+                ClipTime.label(ctx, entry.time)
+            )
+        }
+
+        val body = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        body.addView(
+            TextView(ctx).apply {
+                text = entry.text.replace('\n', ' ')
+                textSize = specialSize
+                maxLines = 3
+                ellipsize = TextUtils.TruncateAt.END
+                setTextColor(
+                    Palette.readable(
+                        cOnKey,
+                        if (entry.pinned) cSecondaryContainer else cSurfaceContainerHighest,
+                        contrastTarget
+                    )
+                )
+                includeFontPadding = false
+            }
+        )
+        val meta = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        if (entry.pinned) {
+            meta.addView(
+                ImageView(ctx).apply {
+                    setImageResource(R.drawable.ic_pin)
+                    imageTintList = ColorStateList.valueOf(
+                        Palette.readable(cPrimary, cSecondaryContainer, contrastTarget)
+                    )
+                    contentDescription = getString(R.string.clip_pinned_icon)
+                },
+                LinearLayout.LayoutParams(dp(14), dp(14)).apply { marginEnd = dp(4) }
+            )
+        }
+        meta.addView(
+            TextView(ctx).apply {
+                text = ClipTime.label(ctx, entry.time)
+                textSize = hintSize()
+                setTextColor(
+                    Palette.readable(
+                        cOnKeyVariant,
+                        if (entry.pinned) cSecondaryContainer else cSurfaceContainerHighest,
+                        contrastTarget
+                    )
+                )
+                includeFontPadding = false
+            }
+        )
+        body.addView(meta)
+        card.addView(
+            body,
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        )
+
+        // Ручка переноса: долгое нажатие начинает перетаскивание.
+        val drag = ImageView(ctx).apply {
+            setImageResource(R.drawable.ic_drag)
+            imageTintList = ColorStateList.valueOf(
+                Palette.readable(cOnKeyVariant, cSurfaceContainerHighest, contrastTarget)
+            )
+            setPadding(dp(8), dp(10), dp(8), dp(10))
+            contentDescription = getString(R.string.clip_move_handle)
+            isClickable = true
+            isFocusable = true
+            setOnLongClickListener {
+                tap()
+                val holder = clipRecycler?.findViewHolderForAdapterPosition(position)
+                if (holder != null) clipTouch?.startDrag(holder)
+                true
+            }
+        }
+        card.addView(drag, LinearLayout.LayoutParams(dp(48), dp(48)))
+
+        card.addView(
+            ImageView(ctx).apply {
+                setImageResource(R.drawable.ic_more)
+                imageTintList = ColorStateList.valueOf(
+                    Palette.readable(cOnKeyVariant, cSurfaceContainerHighest, contrastTarget)
+                )
+                setPadding(dp(10), dp(10), dp(10), dp(10))
+                contentDescription = getString(R.string.clip_card_menu)
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    tap()
+                    showCardMenu(index)
+                }
+            },
+            LinearLayout.LayoutParams(dp(48), dp(48))
+        )
+
+        card.setOnClickListener {
+            val ic = currentInputConnection
+            tap()
+            if (ic != null) ic.commitText(entry.text, 1)
+            closeSheet()
+        }
+        card.setOnLongClickListener {
+            tap()
+            showCardMenu(index)
+            true
+        }
+        return card
     }
 
     /** Пустое состояние: значок листа и пояснение. */
@@ -1587,7 +2254,7 @@ class MoggedKeyboardService : InputMethodService() {
 
         row.setOnClickListener {
             insertChip(text)
-            dismissHistory()
+            closeSheet()
         }
 
         val save = TextView(ctx).apply {
@@ -1602,28 +2269,29 @@ class MoggedKeyboardService : InputMethodService() {
             )
             isClickable = true
             setOnClickListener {
-                ensureClipsLoaded()
-                if (ClipboardHistory.add(
-                        clips,
-                        text,
-                        System.currentTimeMillis(),
-                        prefs.clipSkipCodes
-                    )
-                ) {
-                    pendingClip = null
-                    ClipStore.save(this@MoggedKeyboardService, clips)
-                    Toast.makeText(
-                        this@MoggedKeyboardService,
-                        R.string.clip_saved,
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
-                refreshHistory()
+                tap()
+                val added = ClipboardHistory.add(
+                    clips,
+                    text,
+                    System.currentTimeMillis(),
+                    prefs.clipSkipCodes
+                )
+                if (added) ClipboardHistory.arrange(clips)
+                // Запись могла не пройти: телефон заперт, файл не прочитан.
+                // Тогда честно говорим об этом, а строку оставляем на месте.
+                val saved = added && ClipStore.save(this@MoggedKeyboardService, clips)
+                if (saved) pendingClip = null
+                Toast.makeText(
+                    this@MoggedKeyboardService,
+                    if (saved) R.string.clip_saved else R.string.clip_save_failed,
+                    Toast.LENGTH_SHORT
+                ).show()
+                buildSheet()
             }
         }
         row.addView(
             save,
-            LinearLayout.LayoutParams(dp(140), dp(32)).apply { topMargin = dp(6) }
+            LinearLayout.LayoutParams(dp(140), dp(48)).apply { topMargin = dp(6) }
         )
         return row
     }
@@ -1635,142 +2303,206 @@ class MoggedKeyboardService : InputMethodService() {
         setColor(color)
     }
 
-    @SuppressLint("ClickableViewAccessibility")
-    private fun historyRow(index: Int, entry: ClipEntry): View {
-        val row = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(10), dp(7), dp(10), dp(7))
-            isClickable = true
-            isLongClickable = true
-            // Фон есть у каждой строки: иначе подложка «Удалить» была бы
-            // видна под прозрачной строкой. Закреплённые — тональные.
-            background = tonalBackground(
-                if (entry.pinned) cSecondaryContainer else cSurfaceContainerHigh
-            )
+    /** Карточки в списке: одна карточка — одна запись. */
+    private inner class ClipAdapter : RecyclerView.Adapter<ClipAdapter.Card>() {
+
+        private val items = mutableListOf<ClipEntry>()
+
+        inner class Card(val frame: FrameLayout) : RecyclerView.ViewHolder(frame)
+
+        /** Новый набор строк: фильтр, поиск, удаление и отмена. */
+        fun submit(list: List<ClipEntry>) {
+            items.clear()
+            items.addAll(list)
+            notifyDataSetChanged()
         }
 
-        val top = LinearLayout(ctx).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+        fun itemAt(position: Int): ClipEntry? = items.getOrNull(position)
+
+        /** Перестановка без пересборки: строка едет вместе с пальцем. */
+        fun moveItem(from: Int, to: Int) {
+            if (from !in items.indices || to !in items.indices) return
+            items.add(to, items.removeAt(from))
         }
-        if (entry.pinned) {
-            top.addView(
-                ImageView(ctx).apply {
-                    setImageResource(R.drawable.ic_pin)
-                    imageTintList = ColorStateList.valueOf(
-                        Palette.readable(cPrimary, cSecondaryContainer, contrastTarget)
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Card =
+            Card(
+                FrameLayout(parent.context).apply {
+                    layoutParams = RecyclerView.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.WRAP_CONTENT
                     )
-                    contentDescription = getString(R.string.clip_pinned_icon)
+                }
+            )
+
+        override fun getItemCount(): Int = items.size
+
+        override fun onBindViewHolder(holder: Card, position: Int) {
+            val entry = items.getOrNull(position) ?: return
+            holder.frame.removeAllViews()
+            holder.frame.addView(
+                clipCard(entry, position),
+                FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply { bottomMargin = dp(4) }
+            )
+        }
+    }
+
+    /**
+     * Меню записи: булавка, правка перед вставкой, копирование обратно,
+     * перенос выше/ниже и удаление. Собирается внизу окна.
+     */
+    private fun showCardMenu(index: Int) {
+        if (clips.getOrNull(index) == null) return
+        tap()
+        menuIndex = index
+        buildSheet()
+    }
+
+    private fun cardMenu(index: Int): View {
+        val entry = clips.getOrNull(index) ?: return View(ctx)
+        val pinned = clips.filter { it.pinned }
+        val first = pinned.minOfOrNull { it.order } ?: 0
+        val last = pinned.maxOfOrNull { it.order } ?: 0
+        val here = entry.order
+
+        val box = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(8), dp(2), dp(8), dp(6))
+        }
+
+        val actions = mutableListOf<Pair<String, () -> Unit>>()
+        actions.add(
+            getString(if (entry.pinned) R.string.clip_unpin else R.string.clip_pin) to {
+                pinClipByText(entry.text)
+            }
+        )
+        actions.add(getString(R.string.clip_edit_before) to { insertForEditing(entry.text) })
+        actions.add(getString(R.string.clip_copy_back) to { copyClipBack(entry.text) })
+        // Перенос выше и ниже — то же, что перетаскивание, но кнопками.
+        if (entry.pinned && here > first) {
+            actions.add(getString(R.string.clip_move_up) to { moveClipByText(entry.text, -1) })
+        }
+        if (entry.pinned && here < last) {
+            actions.add(getString(R.string.clip_move_down) to { moveClipByText(entry.text, 1) })
+        }
+        actions.add(getString(R.string.clip_delete) to { removeClipByText(entry.text) })
+
+        actions.forEach { (label, action) ->
+            box.addView(
+                TextView(ctx).apply {
+                    text = label
+                    textSize = specialSize
+                    includeFontPadding = false
+                    setPadding(dp(12), dp(8), dp(12), dp(8))
+                    background = keyBackground(
+                        cSurfaceContainerHighest,
+                        dp(funcRadiusDp.coerceAtMost(16)).toFloat()
+                    )
+                    setTextColor(
+                        Palette.readable(cOnKey, cSurfaceContainerHighest, contrastTarget)
+                    )
+                    isClickable = true
+                    isFocusable = true
+                    setOnClickListener {
+                        tap()
+                        menuIndex = -1
+                        action()
+                    }
                 },
-                LinearLayout.LayoutParams(dp(16), dp(16)).apply { marginEnd = dp(4) }
+                LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    dp(44)
+                ).apply { bottomMargin = dp(4) }
             )
         }
-        top.addView(TextView(ctx).apply {
-            text = entry.text.replace('\n', ' ')
-            textSize = specialSize
-            maxLines = 2
-            ellipsize = TextUtils.TruncateAt.END
-            setTextColor(Palette.readable(cOnKey, cSurfaceContainerHigh, contrastTarget))
-            includeFontPadding = false
-        })
-        row.addView(top)
+        return box
+    }
 
-        row.addView(TextView(ctx).apply {
-            text = ClipTime.label(ctx, entry.time)
-            textSize = hintSize()
-            setTextColor(
-                Palette.readable(cOnKeyVariant, cSurfaceContainerHigh, contrastTarget)
-            )
-            includeFontPadding = false
-        })
-
-        row.setOnClickListener {
-            val ic = currentInputConnection ?: return@setOnClickListener
-            ic.commitText(entry.text, 1)
-            dismissHistory()
+    private fun pinClipByText(text: String) {
+        val index = clips.indexOfFirst { it.text == text }
+        if (index < 0) return
+        if (ClipboardHistory.togglePin(clips, index)) {
+            ClipboardHistory.arrange(clips)
+            ClipStore.save(this, clips)
+        } else {
+            Toast.makeText(this, R.string.clip_pin_limit, Toast.LENGTH_SHORT).show()
         }
-        row.setOnLongClickListener {
-            if (ClipboardHistory.togglePin(clips, index)) {
-                ClipStore.save(this, clips)
-                handler.post { refreshHistory() }
-            } else {
-                Toast.makeText(this, R.string.clip_pin_limit, Toast.LENGTH_SHORT).show()
-            }
-            true
-        }
+        buildSheet()
+    }
 
-        // Подложка «Удалить»: строка уезжает в сторону, под ней видно действие.
-        val frame = FrameLayout(ctx)
-        frame.addView(
-            TextView(ctx).apply {
-                text = getString(R.string.clip_delete)
-                textSize = hintSize()
-                gravity = Gravity.CENTER_VERTICAL or Gravity.END
-                setPadding(0, 0, dp(14), 0)
-                setTextColor(
-                    Palette.readable(cOnKeyVariant, cSurfaceContainerHigh, contrastTarget)
-                )
-                includeFontPadding = false
-            },
-            FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
+    private fun moveClipByText(text: String, offset: Int) {
+        val index = clips.indexOfFirst { it.text == text }
+        if (index < 0) return
+        if (ClipboardHistory.move(clips, index, index + offset)) {
+            ClipboardHistory.arrange(clips)
+            ClipStore.save(this, clips)
+        }
+        buildSheet()
+    }
+
+    private fun removeClipByText(text: String) {
+        val index = clips.indexOfFirst { it.text == text }
+        if (index >= 0) deleteClip(index)
+    }
+
+    /** «Скопировать обратно»: запись снова в системном буфере. */
+    private fun copyClipBack(text: String) {
+        val manager = clipboard() ?: return
+        try {
+            manager.setPrimaryClip(
+                ClipData.newPlainText(getString(R.string.clip_title), text)
             )
+            Toast.makeText(this, R.string.clip_copied, Toast.LENGTH_SHORT).show()
+        } catch (t: Throwable) {
+            // Буфер недоступен: ничего не копируем.
+        }
+    }
+
+    /**
+     * «Изменить перед вставкой»: текст вставляется в поле, дальше его правят
+     * обычными клавишами — в своём приложении это удобнее и безопаснее,
+     * чем редактор внутри клавиатуры.
+     */
+    private fun insertForEditing(text: String) {
+        val ic = currentInputConnection ?: return
+        ic.commitText(text, 1)
+        Toast.makeText(this, R.string.clip_edit_hint, Toast.LENGTH_SHORT).show()
+        closeSheet()
+    }
+
+    /** Клавиши в режиме поиска печатают в строку поиска, а не в приложение. */
+    private fun searchTyping(raw: String) {
+        if (raw.isEmpty()) return
+        if (clipQuery.length >= searchChars) return
+        clipQuery += raw
+        refreshSearch()
+    }
+
+    private fun searchBackspace() {
+        if (clipQuery.isNotEmpty()) clipQuery = clipQuery.dropLast(1)
+        refreshSearch()
+    }
+
+    private fun refreshSearch() {
+        updateSearchLabel()
+        if (sheetOpen) applySheetFilter()
+    }
+
+    /** Строка поиска: подсказка, запрос и курсор — без вставки в поле. */
+    private fun updateSearchLabel() {
+        val label = searchLabel ?: return
+        label.text = when {
+            searchMode && clipQuery.isEmpty() -> getString(R.string.clip_search_hint)
+            searchMode -> clipQuery + "▏"
+            clipQuery.isNotEmpty() -> clipQuery
+            else -> getString(R.string.clip_search_hint)
+        }
+        label.setTextColor(
+            Palette.readable(cOnKey, cSurfaceContainerHighest, contrastTarget)
         )
-        frame.addView(
-            row,
-            FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-        )
-
-        // Свайп в сторону — удаление. Вертикальная прокрутка списка остаётся.
-        var downX = 0f
-        var downY = 0f
-        var dragX = 0f
-        row.setOnTouchListener { view, event ->
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    downX = event.rawX
-                    downY = event.rawY
-                    dragX = 0f
-                    false
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    val dx = event.rawX - downX
-                    val dy = event.rawY - downY
-                    if (abs(dx) > abs(dy) && abs(dx) > dp(8)) {
-                        dragX = dx
-                        view.translationX = dx
-                        true
-                    } else {
-                        false
-                    }
-                }
-                MotionEvent.ACTION_UP -> {
-                    if (abs(dragX) > dp(48)) {
-                        view.animate().translationX(dragX * 2f).alpha(0f).setDuration(90L)
-                            .withEndAction {
-                                ClipboardHistory.remove(clips, index)
-                                ClipStore.save(this, clips)
-                                refreshHistory()
-                            }
-                            .start()
-                        true
-                    } else {
-                        view.animate().translationX(0f).setDuration(120L).start()
-                        false
-                    }
-                }
-                MotionEvent.ACTION_CANCEL -> {
-                    view.animate().translationX(0f).setDuration(120L).start()
-                    false
-                }
-                else -> false
-            }
-        }
-        return frame
     }
 
     // ── панель инструментов ──────────────────────────────────
@@ -1786,6 +2518,10 @@ class MoggedKeyboardService : InputMethodService() {
         val bar = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(PanelBar.SIDE_DP), dp(4), dp(PanelBar.SIDE_DP), dp(4))
+            // Тональная полоса во всю ширину: прозрачность как у клавиш,
+            // поэтому картинка фона просвечивает и здесь.
+            background = ColorDrawable(shownKeyColor(cSurfaceContainerHigh))
         }
 
         bar.addView(panelModeButton())
@@ -1801,6 +2537,9 @@ class MoggedKeyboardService : InputMethodService() {
         fillPanelRow()
         return bar
     }
+
+    /** Ширина, по которой раскладывается панель: всё окно клавиатуры. */
+    private fun panelWidthDp(): Float = windowWidthDp()
 
     /**
      * Кнопка режима: скруглённый квадрат 40×36 dp в ячейке 48 dp, чтобы
@@ -1896,17 +2635,33 @@ class MoggedKeyboardService : InputMethodService() {
     }
 
     private fun fillTools(row: LinearLayout) {
+        val actions = panelActions
+            .filter { it != Panel.UNDO && it != Panel.REDO || !undoUnsupported }
+            .filter { it != Panel.HISTORY || builtClipVisible }
+        if (actions.isEmpty()) return
+
+        // Широкий экран: кнопки равномерно по всей строке, без прокрутки.
+        if (PanelBar.spreads(panelWidthDp())) {
+            actions.forEach { action ->
+                row.addView(
+                    panelButton(action),
+                    LinearLayout.LayoutParams(0, dp(PanelBar.TOUCH_DP), 1f)
+                )
+            }
+            return
+        }
+
         val scroll = HorizontalScrollView(ctx).apply {
             isHorizontalScrollBarEnabled = false
+            // Вместо резкого обрыва — плавное затухание у края.
+            isHorizontalFadingEdgeEnabled = true
+            setFadingEdgeLength(dp(24))
         }
         val inner = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        panelActions
-            .filter { it != Panel.UNDO && it != Panel.REDO || !undoUnsupported }
-            .filter { it != Panel.HISTORY || builtClipVisible }
-            .forEach { action -> inner.addView(panelButton(action)) }
+        actions.forEach { action -> inner.addView(panelButton(action)) }
         scroll.addView(inner)
         row.addView(
             scroll,
@@ -1923,12 +2678,14 @@ class MoggedKeyboardService : InputMethodService() {
      * В защищённом поле ни история, ни шаблоны не показываются.
      */
     private fun fillInsertChips(row: LinearLayout) {
-        val scroll = HorizontalScrollView(ctx).apply {
-            isHorizontalScrollBarEnabled = false
-        }
         val inner = LinearLayout(ctx).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+        }
+        val scroll = HorizontalScrollView(ctx).apply {
+            isHorizontalScrollBarEnabled = false
+            isHorizontalFadingEdgeEnabled = true
+            setFadingEdgeLength(dp(24))
         }
 
         if (!clipViewAllowed()) {
@@ -1938,12 +2695,24 @@ class MoggedKeyboardService : InputMethodService() {
             return
         }
 
+        // На телефоне пять чипов, на планшете восемь: первый — открыть окно.
+        val limit = PanelBar.chips(panelWidthDp())
         val history = if (clipEnabled) {
             ensureClipsLoaded()
             pruneClips()
-            clips.take(PanelMode.MAX_CHIPS)
+            clips.take((limit - 1).coerceAtLeast(1))
         } else {
             emptyList()
+        }
+
+        if (clipEnabled) {
+            inner.addView(
+                panelChip(
+                    text = getString(R.string.clip_open),
+                    description = getString(R.string.clip_open),
+                    onClick = { openSheet() }
+                )
+            )
         }
 
         if (history.isNotEmpty()) {
@@ -1958,7 +2727,7 @@ class MoggedKeyboardService : InputMethodService() {
                 )
             }
         } else if (templates.isNotEmpty()) {
-            templates.take(PanelMode.MAX_CHIPS).forEach { template ->
+            templates.take(limit).forEach { template ->
                 inner.addView(
                     panelChip(
                         text = template.text,
@@ -1967,7 +2736,7 @@ class MoggedKeyboardService : InputMethodService() {
                     )
                 )
             }
-        } else {
+        } else if (!clipEnabled) {
             val hint = getString(R.string.panel_inserts_empty)
             inner.addView(
                 panelChip(text = hint, description = hint)
@@ -2027,7 +2796,7 @@ class MoggedKeyboardService : InputMethodService() {
         )
         layoutParams = LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT,
-            dp(32)
+            dp(PanelBar.TOUCH_DP)
         ).apply { marginStart = dp(4) }
         isClickable = onClick != null
         isLongClickable = onLongClick != null
@@ -2041,7 +2810,7 @@ class MoggedKeyboardService : InputMethodService() {
             Panel.iconRes(action),
             getString(Panel.titleRes(action))
         ) { runPanelAction(action, it) }
-        view.layoutParams = LinearLayout.LayoutParams(dp(44), dp(32)).apply {
+        view.layoutParams = LinearLayout.LayoutParams(dp(48), dp(PanelBar.TOUCH_DP)).apply {
             marginStart = dp(4)
         }
         return view
@@ -2077,7 +2846,7 @@ class MoggedKeyboardService : InputMethodService() {
     private fun runPanelAction(action: String, anchor: View) {
         tap()
         if (action == Panel.HISTORY) {
-            showHistoryPopup(anchor)
+            openSheet()
             return
         }
         val ic = currentInputConnection ?: return
@@ -2350,6 +3119,13 @@ class MoggedKeyboardService : InputMethodService() {
 
     // ── ввод ─────────────────────────────────────────────────
     private fun type(raw: String) {
+        // Пока открыто окно истории, клавиши печатают в поиск: иначе текст
+        // уходил бы в приложение за окном. Первый символ включает поиск сам.
+        if (sheetOpen) {
+            searchMode = true
+            searchTyping(raw)
+            return
+        }
         val ic = currentInputConnection ?: return
         if (raw.isEmpty()) return
 
@@ -2449,6 +3225,12 @@ class MoggedKeyboardService : InputMethodService() {
     }
 
     private fun backspace() {
+        // В открытом окне Backspace стирает запрос, а не текст в приложении.
+        if (sheetOpen) {
+            searchMode = true
+            searchBackspace()
+            return
+        }
         val ic = currentInputConnection ?: return
 
         val selected = ic.getSelectedText(0)
@@ -2517,6 +3299,14 @@ class MoggedKeyboardService : InputMethodService() {
     }
 
     private fun enterKey() {
+        // Enter в открытом окне заканчивает поиск: запрос остаётся фильтром.
+        if (sheetOpen) {
+            tap()
+            searchMode = false
+            updateSearchLabel()
+            applySheetFilter()
+            return
+        }
         val ic = currentInputConnection ?: return
         val info = currentInputEditorInfo
         val noAction = info != null &&
@@ -2592,7 +3382,7 @@ class MoggedKeyboardService : InputMethodService() {
         // мини-панель одной руки и историю буфера.
         dismissAlternatives()
         dismissOneHandPanel()
-        dismissHistory()
+        closeSheet()
         vibrate(strongKey)
         if (soundOn) clickSound?.play(soundVolume.toFloat() / 100f)
     }
@@ -2707,10 +3497,26 @@ class MoggedKeyboardService : InputMethodService() {
         super.onConfigurationChanged(newConfig)
         // Поворот экрана, split-screen, смена темы: вью пересоздаётся,
         // но состояние ввода (shift, caps, страница) не теряем.
+        // Окно истории живёт внутри старой вью, поэтому закрываем его:
+        // иначе на его месте осталась бы пустая полоса.
+        closeSheet()
         keepStateOnce = true
         builtTheme = null
         builtDynamic = null
         root?.requestLayout()
+    }
+
+    /**
+     * «Назад» при открытом окне истории закрывает окно, а не всю клавиатуру.
+     * Система отдаёт клавишу не на всех прошивках, поэтому кнопка «Закрыть»
+     * остаётся основным способом.
+     */
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_BACK && sheetOpen) {
+            closeSheet()
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
     }
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
@@ -2725,12 +3531,15 @@ class MoggedKeyboardService : InputMethodService() {
         pendingSwap = null
         dismissAlternatives()
         dismissOneHandPanel()
-        dismissHistory()
+        closeSheet()
         hidePreview()
         loadPrefs()
         readEditorInfo(info)
         inputActive = true
         syncClipWatch()
+        // Телефон мог быть заперт при прошлом показе: пробуем прочитать
+        // историю ещё раз — записи, накопленные в памяти, не теряются.
+        if (clipEnabled) ensureClipsLoaded()
         pruneClips()
 
         val keep = restarting || keepStateOnce
@@ -2768,7 +3577,7 @@ class MoggedKeyboardService : InputMethodService() {
         stopRepeat()
         dismissAlternatives()
         dismissOneHandPanel()
-        dismissHistory()
+        closeSheet()
         hidePreview()
         inputActive = false
         stopClipWatch()
@@ -2779,7 +3588,7 @@ class MoggedKeyboardService : InputMethodService() {
         stopRepeat()
         dismissAlternatives()
         dismissOneHandPanel()
-        dismissHistory()
+        closeSheet()
         hidePreview()
         inputActive = false
         stopClipWatch()
@@ -2848,5 +3657,5 @@ class MoggedKeyboardService : InputMethodService() {
     private fun sidePadding(): Int = dp(prefs.edgeInset)
 
     /** Полоска панели инструментов добавляется к высоте клавиатуры. */
-    private fun panelHeight(): Int = if (panelOn) dp(48) else 0
+    private fun panelHeight(): Int = if (panelOn) dp(PanelBar.HEIGHT_DP) else 0
 }
