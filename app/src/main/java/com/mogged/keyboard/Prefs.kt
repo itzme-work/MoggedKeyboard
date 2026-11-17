@@ -9,7 +9,12 @@ class Prefs(context: Context) {
     private companion object {
         /** Служебный флаг: кнопка «История» в панели уже добавлена. */
         const val PANEL_MIGRATED = "panel_actions_v2"
+
+        /** Шаблоны из 0.13 и раньше: лежали здесь открытым текстом. */
+        const val TEMPLATES_OLD = "templates"
     }
+
+    private val appContext: Context = context.applicationContext
 
     val store: SharedPreferences =
         context.getSharedPreferences("mogged", Context.MODE_PRIVATE)
@@ -234,23 +239,47 @@ class Prefs(context: Context) {
         set(value) = store.edit().putBoolean("clip_hint_shown", value).apply()
 
     /**
-     * Разовая правка настроек: кнопка «История» в старых панелях.
-     * Геттер [panelActions] только читает, поэтому миграция живёт здесь
-     * и вызывается из [MoggedApp.onCreate] — один раз за установку.
+     * Разовая правка настроек: кнопка «История» в старых панелях и шаблоны
+     * из открытых настроек. Геттеры только читают, поэтому миграция живёт
+     * здесь и вызывается из [MoggedApp.onCreate] — при каждом запуске, но
+     * работу делает один раз.
      */
     fun migrate() {
-        if (store.getBoolean(PANEL_MIGRATED, false)) return
-        val migrated = Panel.migrated(Panel.parse(store.getString("panel_actions", Panel.DEFAULT)))
-        store.edit()
-            .putString("panel_actions", Panel.format(migrated))
-            .putBoolean(PANEL_MIGRATED, true)
-            .apply()
+        if (!store.getBoolean(PANEL_MIGRATED, false)) {
+            val migrated =
+                Panel.migrated(Panel.parse(store.getString("panel_actions", Panel.DEFAULT)))
+            store.edit()
+                .putString("panel_actions", Panel.format(migrated))
+                .putBoolean(PANEL_MIGRATED, true)
+                .apply()
+        }
+        migrateTemplates()
     }
 
-    /** Шаблоны-сокращения; в настройках лежат строкой JSON. */
+    /**
+     * Шаблоны 0.13 лежали строкой JSON в настройках, то есть открытым
+     * текстом. Переписываем их в зашифрованный файл и убираем из настроек;
+     * если записать не удалось (телефон заперт), попробуем в следующий раз.
+     */
+    private fun migrateTemplates() {
+        val legacy = store.getString(TEMPLATES_OLD, null) ?: return
+        val list = Templates.parse(legacy)
+        if (TemplateStore.save(appContext, list)) store.edit().remove(TEMPLATES_OLD).apply()
+    }
+
+    /**
+     * Шаблоны-сокращения: зашифрованный файл, а не настройки.
+     * Если файл сейчас не читается (телефон заперт), отдаём последнюю
+     * удачную копию из памяти — иначе набор текста «забыл» бы сокращения.
+     */
     var templates: List<Template>
-        get() = Templates.parse(store.getString("templates", "[]"))
-        set(value) = store.edit().putString("templates", Templates.toJson(value)).apply()
+        get() {
+            val loaded = TemplateStore.read(appContext)
+            return if (loaded.ok) loaded.list else TemplateStore.cached() ?: emptyList()
+        }
+        set(value) {
+            TemplateStore.save(appContext, value)
+        }
 
     /** Умная пунктуация. */
     var smartQuotes: Boolean
