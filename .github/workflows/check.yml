@@ -2,9 +2,14 @@ name: Проверки
 
 # Быстрая проверка на каждый push и pull request: тесты, lint и правила
 # проекта. Релизная сборка (build.yml) запускается только вручную.
+#
+# Заливка (upload-to-github.sh) коммитит по файлу и ставит [skip ci], а в
+# конце запускает этот workflow вручную через workflow_dispatch — один
+# прогон на готовом дереве вместо двух на каждый коммит.
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: check-${{ github.ref }}
