@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ручка перетаскивания: три короткие полоски друг под другом. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M6,7h12a1,1 0 0,1 0,2h-12a1,1 0 0,1 0,-2zM6,11h12a1,1 0 0,1 0,2h-12a1,1 0 0,1 0,-2zM6,15h12a1,1 0 0,1 0,2h-12a1,1 0 0,1 0,-2z" />
+</vector>
