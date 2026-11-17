@@ -201,4 +201,97 @@ class ClipboardHistoryTest {
         assertFalse(ClipboardHistory.valid("а".repeat(ClipboardHistory.MAX_LENGTH + 1)))
         assertTrue(ClipboardHistory.valid("1234"))
     }
+
+    // ── порядок закреплённых ─────────────────────────────────
+
+    private fun pinnedList(vararg texts: String): MutableList<ClipEntry> =
+        texts.mapIndexed { index, text ->
+            ClipEntry(text, index.toLong(), pinned = true, order = index + 1)
+        }.toMutableList()
+
+    @Test
+    fun moveReordersPinnedAndRenumbers() {
+        val clips = pinnedList("первая", "вторая", "третья")
+        assertTrue(ClipboardHistory.move(clips, 2, 0))
+        assertEquals(listOf("третья", "первая", "вторая"), clips.map { it.text })
+        assertEquals(listOf(1, 2, 3), clips.map { it.order })
+    }
+
+    @Test
+    fun moveBetweenPinnedAndUnpinnedIsRefused() {
+        val clips = mutableListOf(
+            ClipEntry("закреплённая", 0L, pinned = true, order = 1),
+            ClipEntry("обычная", 1L)
+        )
+        assertFalse(ClipboardHistory.move(clips, 0, 1))
+        assertFalse(ClipboardHistory.move(clips, 1, 0))
+        assertEquals(listOf("закреплённая", "обычная"), clips.map { it.text })
+    }
+
+    @Test
+    fun moveOutOfBoundsAndSamePositionAreRefused() {
+        val clips = pinnedList("первая", "вторая")
+        assertFalse(ClipboardHistory.move(clips, 0, 0))
+        assertFalse(ClipboardHistory.move(clips, -1, 0))
+        assertFalse(ClipboardHistory.move(clips, 0, 5))
+        assertEquals(listOf("первая", "вторая"), clips.map { it.text })
+    }
+
+    @Test
+    fun moveUnpinnedKeepsRelativeOrder() {
+        val clips = list("первая", "вторая", "третья")
+        assertTrue(ClipboardHistory.move(clips, 2, 0))
+        assertEquals(listOf("третья", "первая", "вторая"), clips.map { it.text })
+        assertTrue(clips.all { it.order == 0 })
+    }
+
+    @Test
+    fun duplicatePinnedKeepsItsPlaceAmongPinned() {
+        val clips = pinnedList("первая", "вторая")
+        assertTrue(ClipboardHistory.add(clips, "вторая", 99L))
+        assertEquals("вторая", clips.first().text)
+        assertEquals(2, clips.first().order)
+        assertEquals(99L, clips.first().time)
+    }
+
+    @Test
+    fun arrangePutsPinnedAboveAndKeepsOrder() {
+        val clips = mutableListOf(
+            ClipEntry("обычная", 0L),
+            ClipEntry("вторая закреплённая", 1L, pinned = true, order = 2),
+            ClipEntry("первая закреплённая", 2L, pinned = true, order = 1)
+        )
+        ClipboardHistory.arrange(clips)
+        assertEquals(
+            listOf("первая закреплённая", "вторая закреплённая", "обычная"),
+            clips.map { it.text }
+        )
+    }
+
+    @Test
+    fun filterUsesSearchAndPinnedOnly() {
+        val clips = mutableListOf(
+            ClipEntry("Пароль от почты", 1L, pinned = true, order = 1),
+            ClipEntry("просто текст", 2L),
+            ClipEntry("почта рабочая", 3L)
+        )
+        assertEquals(2, ClipboardHistory.filter(clips, "почт", false).size)
+        assertEquals(1, ClipboardHistory.filter(clips, "почт", true).size)
+        assertEquals(1, ClipboardHistory.filter(clips, "", true).size)
+        assertEquals(3, ClipboardHistory.filter(clips, "  ", false).size)
+    }
+
+    @Test
+    fun jsonKeepsPinnedOrderAndReadsOldFiles() {
+        val clips = pinnedList("первая", "вторая")
+        val restored = ClipboardHistory.fromJson(ClipboardHistory.toJson(clips))
+        assertEquals(listOf(1, 2), restored.map { it.order })
+
+        // Файл 0.13: поля order нет, запись всё равно читается.
+        val old = """[{"text":"старая","time":5,"pinned":true}]"""
+        val read = ClipboardHistory.fromJson(old)
+        assertEquals(1, read.size)
+        assertEquals(0, read.first().order)
+        assertTrue(read.first().pinned)
+    }
 }
