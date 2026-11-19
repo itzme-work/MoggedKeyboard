@@ -6,13 +6,18 @@ package com.mogged.keyboard
  * Правила, которые проверяются тестами:
  * - пока файл не прочитан, кэш считается незагруженным и пробует снова;
  * - неудачное чтение (телефон заперт) не теряет записи, накопленные
- *   в памяти: после удачного чтения они добавляются к файлу;
+ *   в памяти: после удачного чтения они добавляются к файлу и сразу
+ *   записываются на диск;
  * - «Очистить всё» очищает и память, и признак загрузки.
  *
- * Загрузчик передаётся снаружи, поэтому всё поведение проверяется на JVM
- * без Android и без настоящего Keystore.
+ * Загрузчик и запись передаются снаружи, поэтому всё поведение проверяется
+ * на JVM без Android и без настоящего Keystore.
  */
-class ClipCache(private val loader: () -> ClipStore.Loaded) {
+class ClipCache(
+    private val loader: () -> ClipStore.Loaded,
+    /** Запись истории на диск: без неё слитые записи жили бы до перезапуска. */
+    private val saver: (List<ClipEntry>) -> Boolean = { true }
+) {
 
     var entries: MutableList<ClipEntry> = mutableListOf()
         private set
@@ -28,6 +33,8 @@ class ClipCache(private val loader: () -> ClipStore.Loaded) {
         if (!result.ok) return false
 
         val memory = entries
+        entries = result.entries
+        loaded = true
         if (memory.isNotEmpty()) {
             // В памяти новые записи лежат сверху, поэтому добавляем
             // от старых к новым: так порядок сохранится.
@@ -39,9 +46,11 @@ class ClipCache(private val loader: () -> ClipStore.Loaded) {
                     skipCodes = false
                 )
             }
+            // Слитые записи иначе остались бы только в памяти до следующего
+            // события: пишем их на диск сразу. Не вышло — записи всё равно
+            // в памяти, их запишет ближайшее сохранение.
+            saver(result.entries)
         }
-        entries = result.entries
-        loaded = true
         return true
     }
 
