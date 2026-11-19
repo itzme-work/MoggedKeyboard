@@ -605,13 +605,13 @@ class MainActivity : AppCompatActivity() {
         bindSwitch(R.id.swAnimations, prefs.animations) { prefs.animations = it }
 
         findViewById<Button>(R.id.btnResetLook).setOnClickListener {
-            confirmReset { resetLook() }
+            confirmReset { resetLook(); true }
         }
         findViewById<Button>(R.id.btnResetInput).setOnClickListener {
             confirmReset { resetInput() }
         }
         findViewById<Button>(R.id.btnResetFeel).setOnClickListener {
-            confirmReset { resetFeel() }
+            confirmReset { resetFeel(); true }
         }
         findViewById<Button>(R.id.btnResetAll).setOnClickListener {
             confirmReset { Backup.applyTo(prefs, Backup.DEFAULT) }
@@ -1132,15 +1132,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ── сброс настроек ───────────────────────────────────────
-    private fun confirmReset(action: () -> Unit) {
+    private fun confirmReset(action: () -> Boolean) {
         MaterialAlertDialogBuilder(this)
             .setTitle(R.string.reset_title)
             .setMessage(R.string.reset_text)
             .setNegativeButton(R.string.reset_cancel, null)
             .setPositiveButton(R.string.reset_ok) { _, _ ->
-                action()
+                val ok = action()
                 MoggedApp.applyNightMode(prefs.theme)
-                toast(R.string.reset_done)
+                toast(if (ok) R.string.reset_done else R.string.templates_save_failed)
                 // Пересоздаём экран: все ползунки и переключатели снова
                 // показывают значения по умолчанию.
                 recreate()
@@ -1585,7 +1585,7 @@ class MainActivity : AppCompatActivity() {
                             existing == null -> list.add(Template(s, t))
                             else -> list[index!!] = Template(s, t)
                         }
-                        prefs.templates = list
+                        saveTemplates(list)
                         refreshTemplates()
                     }
                 }
@@ -1600,7 +1600,7 @@ class MainActivity : AppCompatActivity() {
                     .setPositiveButton(R.string.templates_delete) { _, _ ->
                         val list = prefs.templates.toMutableList()
                         if (index != null && index in list.indices) list.removeAt(index)
-                        prefs.templates = list
+                        saveTemplates(list)
                         refreshTemplates()
                     }
                     .setNegativeButton(R.string.reset_cancel, null)
@@ -1608,6 +1608,17 @@ class MainActivity : AppCompatActivity() {
             }
         }
         builder.show()
+    }
+
+    /**
+     * Пишет шаблоны и честно говорит, если записать не удалось: файл
+     * шифруется ключом Keystore, а на запертом телефоне он недоступен.
+     * Без этого правка пропадала бы молча.
+     */
+    private fun saveTemplates(list: List<Template>): Boolean {
+        val ok = prefs.saveTemplates(list)
+        if (!ok) toast(R.string.templates_save_failed)
+        return ok
     }
 
     private fun refreshTemplates() {
@@ -1731,7 +1742,8 @@ class MainActivity : AppCompatActivity() {
         prefs.edgeInset = edgeInset
     }
 
-    private fun resetInput() = with(Backup.DEFAULT) {
+    /** false — шаблоны записать не удалось, остальное сброшено. */
+    private fun resetInput(): Boolean = with(Backup.DEFAULT) {
         prefs.hints = hints
         prefs.keyPreview = keyPreview
         prefs.numberRow = numberRow
@@ -1743,7 +1755,6 @@ class MainActivity : AppCompatActivity() {
         prefs.oneHandPanel = oneHandPanel
         prefs.panelOn = panelOn
         prefs.panelActions = Panel.parse(panelActions)
-        prefs.templates = Templates.parse(templates)
         prefs.smartQuotes = smartQuotes
         prefs.smartDash = smartDash
         prefs.smartEllipsis = smartEllipsis
@@ -1753,6 +1764,7 @@ class MainActivity : AppCompatActivity() {
         prefs.clipRetention = clipRetention
         prefs.clipSkipCodes = clipSkipCodes
         prefs.panelMode = panelMode
+        prefs.saveTemplates(Templates.parse(templates))
     }
 
     private fun resetFeel() = with(Backup.DEFAULT) {
@@ -1851,9 +1863,12 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        Backup.applyTo(prefs, settings)
+        val templatesSaved = Backup.applyTo(prefs, settings)
         MoggedApp.applyNightMode(prefs.theme)
-        toast(R.string.backup_loaded)
+        toast(
+            if (templatesSaved) R.string.backup_loaded
+            else R.string.backup_templates_failed
+        )
         recreate()
     }
 
