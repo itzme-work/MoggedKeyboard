@@ -25,10 +25,12 @@ class ClipCacheTest {
     fun failedReadIsRetriedOnNextEnsure() {
         var calls = 0
         var ok = false
-        val cache = ClipCache {
-            calls++
-            if (ok) onDisk("с диска") else failure()
-        }
+        val cache = ClipCache(
+            loader = {
+                calls++
+                if (ok) onDisk("с диска") else failure()
+            }
+        )
 
         assertFalse(cache.ensure())
         assertFalse(cache.loaded)
@@ -45,7 +47,7 @@ class ClipCacheTest {
     @Test
     fun memoryEntriesSurviveFailureAndJoinDiskEntries() {
         var ok = false
-        val cache = ClipCache { if (ok) onDisk("старое") else failure() }
+        val cache = ClipCache(loader = { if (ok) onDisk("старое") else failure() })
 
         assertFalse(cache.ensure())
         // Пока файл не читается, новые копии копятся в памяти.
@@ -64,7 +66,7 @@ class ClipCacheTest {
     @Test
     fun repeatedEntryIsNotDuplicatedAfterMerge() {
         var ok = false
-        val cache = ClipCache { if (ok) onDisk("одно и то же") else failure() }
+        val cache = ClipCache(loader = { if (ok) onDisk("одно и то же") else failure() })
 
         assertFalse(cache.ensure())
         cache.entries.add(0, ClipEntry("одно и то же", 100L))
@@ -76,12 +78,65 @@ class ClipCacheTest {
     }
 
     @Test
+    fun mergedEntriesAreWrittenToDiskAtOnce() {
+        var ok = false
+        var saved: List<ClipEntry>? = null
+        val cache = ClipCache(
+            loader = { if (ok) onDisk("старое") else failure() },
+            saver = { list ->
+                saved = list.toList()
+                true
+            }
+        )
+
+        assertFalse(cache.ensure())
+        // Копии, сделанные пока файл не читался, копятся в памяти.
+        cache.entries.add(0, ClipEntry("новое", 100L))
+
+        ok = true
+        assertTrue(cache.ensure())
+
+        assertEquals(listOf("новое", "старое"), saved?.map { it.text })
+    }
+
+    @Test
+    fun diskIsNotRewrittenWhenNothingWasInMemory() {
+        var writes = 0
+        val cache = ClipCache(
+            loader = { onDisk("запись") },
+            saver = { writes++; true }
+        )
+
+        assertTrue(cache.ensure())
+        assertEquals(0, writes)
+    }
+
+    @Test
+    fun failedSaveKeepsEntriesInMemory() {
+        var ok = false
+        val cache = ClipCache(
+            loader = { if (ok) onDisk("старое") else failure() },
+            saver = { false }
+        )
+
+        assertFalse(cache.ensure())
+        cache.entries.add(0, ClipEntry("новое", 100L))
+
+        ok = true
+        assertTrue(cache.ensure())
+        assertEquals(2, cache.entries.size)
+        assertEquals("новое", cache.entries.first().text)
+    }
+
+    @Test
     fun resetForgetsLoadedFlagAndEntries() {
         var calls = 0
-        val cache = ClipCache {
-            calls++
-            onDisk("запись")
-        }
+        val cache = ClipCache(
+            loader = {
+                calls++
+                onDisk("запись")
+            }
+        )
 
         assertTrue(cache.ensure())
         assertEquals(1, calls)
@@ -96,10 +151,12 @@ class ClipCacheTest {
     @Test
     fun clearLeavesNothingToRead() {
         var calls = 0
-        val cache = ClipCache {
-            calls++
-            onDisk("запись")
-        }
+        val cache = ClipCache(
+            loader = {
+                calls++
+                onDisk("запись")
+            }
+        )
 
         assertTrue(cache.ensure())
         cache.clear()
