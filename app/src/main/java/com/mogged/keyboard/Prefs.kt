@@ -269,17 +269,22 @@ class Prefs(context: Context) {
 
     /**
      * Шаблоны-сокращения: зашифрованный файл, а не настройки.
-     * Если файл сейчас не читается (телефон заперт), отдаём последнюю
-     * удачную копию из памяти — иначе набор текста «забыл» бы сокращения.
+     *
+     * Файл открывается один раз: [TemplateStore] помнит набор, а служба
+     * спрашивает шаблоны на каждое слово и на каждое изменение настроек —
+     * без кэша это были бы походы в Keystore в главном потоке.
+     * Если файл сейчас не читается (телефон заперт), кэш остаётся пустым
+     * и следующее обращение попробует снова.
      */
-    var templates: List<Template>
-        get() {
-            val loaded = TemplateStore.read(appContext)
-            return if (loaded.ok) loaded.list else TemplateStore.cached() ?: emptyList()
-        }
-        set(value) {
-            TemplateStore.save(appContext, value)
-        }
+    val templates: List<Template>
+        get() = TemplateStore.cached() ?: TemplateStore.read(appContext).list
+
+    /**
+     * Записывает шаблоны целиком. false — записать не удалось, и вызывающий
+     * обязан сказать об этом: иначе правка пропадает молча.
+     */
+    fun saveTemplates(list: List<Template>): Boolean =
+        TemplateStore.save(appContext, list)
 
     /** Умная пунктуация. */
     var smartQuotes: Boolean
