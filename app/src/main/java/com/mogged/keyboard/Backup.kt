@@ -171,7 +171,12 @@ object Backup {
         panelMode = prefs.panelMode
     )
 
-    fun applyTo(prefs: Prefs, settings: Settings) {
+    /**
+     * Переносит настройки в [Prefs]. Остальные настройки применяются всегда;
+     * false означает, что шаблоны записать не удалось (телефон заперт) —
+     * вызывающий обязан сказать об этом, иначе импорт соврёт «загружено».
+     */
+    fun applyTo(prefs: Prefs, settings: Settings): Boolean {
         prefs.width = settings.width
         prefs.oneHand = settings.oneHand
         prefs.height = settings.height
@@ -208,7 +213,7 @@ object Backup {
         prefs.animations = settings.animations
         prefs.panelOn = settings.panelOn
         prefs.panelActions = Panel.parse(settings.panelActions)
-        prefs.templates = Templates.parse(settings.templates)
+        val templatesSaved = prefs.saveTemplates(Templates.parse(settings.templates))
         prefs.smartQuotes = settings.smartQuotes
         prefs.smartDash = settings.smartDash
         prefs.smartEllipsis = settings.smartEllipsis
@@ -222,6 +227,7 @@ object Backup {
         prefs.clipRetention = settings.clipRetention
         prefs.clipSkipCodes = settings.clipSkipCodes
         prefs.panelMode = settings.panelMode
+        return templatesSaved
     }
 
     fun toJson(settings: Settings): String = JSONObject().apply {
