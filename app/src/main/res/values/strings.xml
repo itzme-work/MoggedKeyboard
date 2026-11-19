@@ -145,6 +145,7 @@
     <string name="backup_loaded">Настройки загружены</string>
     <string name="backup_bad">Это не резервная копия Mogged Keyboard</string>
     <string name="backup_read_failed">Не удалось прочитать файл</string>
+    <string name="backup_templates_failed">Настройки загружены, но шаблоны сохранить не удалось: разблокируйте телефон</string>
 
     <string name="updates_title">Обновления</string>
     <string name="update_current">Установлена версия %1$s</string>
@@ -250,6 +251,7 @@
     <string name="templates_full">Больше 50 шаблонов нельзя</string>
     <string name="templates_need_shortcut">Нужно сокращение без пробелов</string>
     <string name="templates_need_text">Нужен текст шаблона</string>
+    <string name="templates_save_failed">Не удалось сохранить шаблоны: разблокируйте телефон</string>
     <string name="templates_delete">Удалить</string>
     <string name="templates_delete_title">Удалить шаблон?</string>
     <string name="templates_delete_text">«%1$s» больше не будет раскрываться.</string>
