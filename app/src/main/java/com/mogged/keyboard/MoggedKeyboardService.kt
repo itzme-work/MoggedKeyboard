@@ -196,7 +196,10 @@ class MoggedKeyboardService : InputMethodService() {
     private var clipRetention = ClipboardHistory.RETENTION_DAY
 
     /** История в памяти: загрузка с диска и повтор после неудачи — в [ClipCache]. */
-    private val clipCache = ClipCache { ClipStore.read(this) }
+    private val clipCache = ClipCache(
+        loader = { ClipStore.read(this) },
+        saver = { ClipStore.save(this, it) }
+    )
     private val clips: MutableList<ClipEntry> get() = clipCache.entries
 
     /** Копия, лежащая в буфере при открытии панели: ждёт кнопки «Сохранить». */
