@@ -162,6 +162,11 @@ sh tools/make-icon.sh
     `--write-verification-metadata sha256 testReleaseUnitTest lintRelease
     assembleRelease` и выкладывает `gradle/verification-metadata.xml`
     артефактом. Файл кладут в дерево — дальше Gradle и CI сверяют суммы.
+  - Служебная проверка дерева пропускает `gradle/verification-metadata.xml`
+    по шаблону IP: в файле есть версии вида
+    `com.google.android:annotations:4.1.1.4`, и они ловились как адрес.
+    Остальные шаблоны (токены, прокси, `/storage/`) к файлу применяются
+    отдельной проверкой.
   - `Prefs.templates` читает файл только пока `TemplateStore.cached()`
     пуст; сохранение кэш обновляет. `Prefs.saveTemplates()` возвращает
     результат, `Backup.applyTo()` — тоже, `MainActivity` показывает
